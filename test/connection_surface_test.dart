@@ -14,7 +14,7 @@ class _Push extends Msg {
   final _Line line;
 }
 
-final class _Chat extends ConnectionRegistry<_Line, String, int, _Push, String> {
+final class _Chat extends ConnectionRegistry<String, _Line, String, int, _Push> {
   const _Chat();
   @override
   String keyOf(_Push m) => m.chat;
@@ -25,30 +25,24 @@ final class _Chat extends ConnectionRegistry<_Line, String, int, _Push, String> 
 }
 
 void main() {
-  test('surface requests the initial page once; idempotent until invalidate', () {
+  test('needs() is true until markSurfaced; invalidate re-arms', () {
     final bus = Bus();
-    final store = ConnectionStore(const _Chat(), bus);
-    final loaded = <String>[];
-    store.onFetch((k) async => loaded.add(k));
+    final store = ConnectionMemory(const _Chat(), bus);
 
-    store.surface('a'); // first → fetch
-    store.surface('a'); // already requested → no-op
-    expect(loaded, ['a']);
-
-    store.invalidate('a'); // re-arm
-    store.surface('a'); // fetch again
-    expect(loaded, ['a', 'a']);
+    expect(store.needs('a'), isTrue); // page not requested yet
+    store.markSurfaced('a');
+    expect(store.needs('a'), isFalse); // requested → no re-emit
+    store.invalidate('a');
+    expect(store.needs('a'), isTrue); // re-armed
   });
 
-  test('a disconnect re-arms surface (loaded pages may be stale)', () {
+  test('a disconnect re-arms needs (loaded pages may be stale)', () {
     final bus = Bus();
-    final store = ConnectionStore(const _Chat(), bus);
-    final loaded = <String>[];
-    store.onFetch((k) async => loaded.add(k));
+    final store = ConnectionMemory(const _Chat(), bus);
 
-    store.surface('a');
+    store.markSurfaced('a');
+    expect(store.needs('a'), isFalse);
     bus.setConnected(false); // clears surfaced
-    store.surface('a'); // refetches
-    expect(loaded, ['a', 'a']);
+    expect(store.needs('a'), isTrue); // re-armed by disconnect
   });
 }

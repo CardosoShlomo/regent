@@ -15,16 +15,18 @@ class _Set extends Msg with Identifiable<String> {
   final String id;
 }
 
-final class _Items extends Registry<_Item, _Set, String> {
+final class _Items extends Registry<String, _Item, _Set> {
   const _Items();
   @override
-  _Item? reduce(_Item? s, _Set m) => _Item(m.id);
+  IdentifiableMap<_Item, String> reduce(
+          IdentifiableMap<_Item, String> states, _Set m) =>
+      states.upsert(_Item(m.id));
 }
 
 void main() {
   test('consume refcounts: watchers track live subscribers', () async {
     final bus = Bus();
-    final store = RegistryStore(const _Items(), bus);
+    final store = RegistryMemory(const _Items(), bus);
     expect(store.watchers('a'), 0);
 
     final s1 = store.consume('a').listen((_) {});
@@ -40,7 +42,7 @@ void main() {
 
   test('gc reclaims unwatched confirmed entries; keeps watched + pending', () async {
     final bus = Bus();
-    final store = RegistryStore(const _Items(), bus);
+    final store = RegistryMemory(const _Items(), bus);
     bus.dispatch(_Set('kept')); // confirmed, will be watched
     bus.dispatch(_Set('dropped')); // confirmed, unwatched
     bus.dispatch(_Set('pend'), optimistic: true, correlationId: 'C1'); // overlay

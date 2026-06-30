@@ -25,7 +25,7 @@ class _Push extends _CMsg {
 }
 
 final class _Chats
-    extends ConnectionRegistry<_M, int, int, _CMsg, String> {
+    extends ConnectionRegistry<String, _M, int, int, _CMsg> {
   const _Chats();
   @override
   String keyOf(_CMsg m) => switch (m) {
@@ -45,7 +45,7 @@ final class _Chats
 void main() {
   test('messages route to the right connection by key', () {
     final bus = Bus();
-    final store = ConnectionStore(const _Chats(), bus);
+    final store = ConnectionMemory(const _Chats(), bus);
     bus.dispatch(_Page('a', [_M(2, 'a'), _M(1, 'a')], true));
     bus.dispatch(_Push(_M(3, 'a'))); // live edge → anchors
     expect(store['a'].window.map((m) => m.id), [3, 2, 1]);
@@ -54,7 +54,7 @@ void main() {
   test('a push for a never-opened connection is STORED (floating), not ignored',
       () {
     final bus = Bus();
-    final store = ConnectionStore(const _Chats(), bus);
+    final store = ConnectionMemory(const _Chats(), bus);
     bus.dispatch(_Push(_M(9, 'b'))); // chat 'b' never loaded → not at live edge
     expect(store['b'].window, isEmpty); // window untouched
     expect(store['b'].floating.single.entity.id, 9); // but kept, floating
@@ -62,7 +62,7 @@ void main() {
 
   test('store.watch streams a connection view that updates on dispatch', () async {
     final bus = Bus();
-    final store = ConnectionStore(const _Chats(), bus);
+    final store = ConnectionMemory(const _Chats(), bus);
     final seen = <List<int>>[];
     final sub = store.watch('a').listen((v) => seen.add([for (final m in v.window) m.id]));
     await Future<void>.delayed(Duration.zero); // initial empty

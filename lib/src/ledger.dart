@@ -54,6 +54,12 @@ class Ledger {
       journal.dispatch(msg,
           source: source, optimistic: optimistic, correlationId: correlationId);
 
+  /// Subscribe to typed messages on the journal (the complete feed) — the bus's
+  /// listen door. Returns the subscription to cancel.
+  StreamSubscription<Envelope> on<M extends Msg>(
+          void Function(M msg, Envelope env) handler) =>
+      journal.on<M>(handler);
+
   /// Discard the optimistic overlay(s) for [correlationId] across every store —
   /// the prediction failed. Confirmed/superseding writes survive (base is clean).
   void rollback(String correlationId) {
@@ -87,18 +93,18 @@ class Ledger {
   void setConnected(bool value) => journal.setConnected(value);
 
   /// A live store for [reg], driven off the post-guard stream.
-  RegistryStore<S, M, K> registry<S extends Identifiable<K>, M extends Msg, K>(
-      Registry<S, M, K> reg) {
-    final store = RegistryStore<S, M, K>(reg, _posted);
+  RegistryMemory<K, E, M> registry<K, E extends Identifiable<K>, M extends Msg>(
+      Registry<K, E, M> reg) {
+    final store = RegistryMemory<K, E, M>(reg, _posted);
     _rollbacks.add(store.rollback);
     return store;
   }
 
   /// A live connection family for [reg], driven off the post-guard stream.
-  ConnectionStore<T, I, SK, M, K> connection<T extends Identifiable<I>, I,
-              SK extends Comparable<Object?>, M extends Msg, K>(
-          ConnectionRegistry<T, I, SK, M, K> reg) =>
-      ConnectionStore<T, I, SK, M, K>(reg, _posted);
+  ConnectionMemory<K, T, I, SK, M> connection<K, T extends Identifiable<I>, I,
+              SK extends Comparable<Object?>, M extends Msg>(
+          ConnectionRegistry<K, T, I, SK, M> reg) =>
+      ConnectionMemory<K, T, I, SK, M>(reg, _posted);
 
   void close() {
     _sub.cancel();

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:identifiable/identifiable.dart';
-import 'store.dart';
 
 import 'envelope.dart';
 import 'msg.dart';
@@ -12,15 +11,10 @@ import 'msg.dart';
 /// the bus to it; side effects belong in a subscriber ([Bus.on]), not a guard.
 typedef Guard = Envelope? Function(Envelope);
 
-/// The transport hook a [RegistryStore] calls to load a key on demand (Door 2):
-/// hit the source and dispatch the result back onto the bus. App-provided, so
-/// the ledger stays transport-agnostic.
-typedef Fetch<K> = Future<void> Function(K key);
-
 /// The message bus — the RICH tier's transport. Dispatch envelopes through
 /// guards to typed subscribers. Transport-agnostic: feed it from WS, HTTP, a
 /// local DB, or a local optimistic `dispatch(..., optimistic: true)`.
-/// Decoupled from canon and from Flutter; a [RegistryStore] subscribes to it,
+/// Decoupled from canon and from Flutter; a [RegistryMemory] subscribes to it,
 /// and a riverpod notifier can subscribe via [on] too — neither owns the other.
 class Bus {
   final StreamController<Envelope> _controller =
@@ -79,26 +73,29 @@ class Bus {
 
 /// The PURE, const registry descriptor: how a message folds into an entry's
 /// state. No mutable state, no `ref`, const — so it can sit in a spec. The live
-/// store ([RegistryStore]) is created separately and wired to a [Bus].
-abstract class Registry<S extends Identifiable<K>, M extends Msg, K> {
+/// store ([RegistryMemory]) is created separately and wired to a [Bus].
+abstract class Registry<K, E extends Identifiable<K>, M extends Msg> {
   const Registry();
 
-  /// Fold one message into its key's entry. `state` is null when no entry
-  /// exists yet; return null to REMOVE the entry. PURE — it is replayed on
-  /// overlay confirm/rollback (next phase), so it must have no side effects.
-  S? reduce(S? state, M msg);
-
-  /// The key a message targets. Defaults to the message's own [Identifiable]
-  /// id; override when a message keys differently from how it is identified.
-  K keyOf(M msg) => (msg as Identifiable<K>).id;
+  /// Fold a message into the registry's keyed collection and return the NEXT
+  /// collection. PURE — replayed on optimistic confirm/rollback, so no side
+  /// effects. A message may touch MANY entries (a batch load) or none. The
+  /// `identifiable` map extensions keep it terse:
+  /// `entities.upsert(x)` · `entities.upsertAll(xs)` · `entities.removeById(id)`
+  /// · `entities.updateById(id, (cur) => …)`.
+  IdentifiableMap<E, K> reduce(IdentifiableMap<E, K> entities, M msg);
 }
 
+/// The common case: a registry of [Identity] entities keyed by their String id.
+/// Reach for [Registry] directly only when the key is not the String id.
+typedef Store<E extends Identity, M extends Msg> = Registry<String, E, M>;
+
 /// One in-flight optimistic prediction: the message to re-fold over the base,
-/// tagged by the correlation id that will confirm or roll it back.
-class _Pending<K, M> {
-  _Pending(this.correlationId, this.key, this.msg);
+/// tagged by the correlation id that will confirm or roll it back. Keyless — a
+/// prediction may touch any number of entries, discovered by diffing.
+class _Pending<M> {
+  _Pending(this.correlationId, this.msg);
   final String correlationId;
-  final K key;
   final M msg;
 }
 
@@ -113,8 +110,8 @@ class _Pending<K, M> {
 /// correlation id CONFIRMS it (drop the overlay, apply the real effect to base);
 /// [rollback] discards it. Because predictions never touch base, a rollback
 /// after a superseding write keeps the superseding write — see the test.
-class RegistryStore<S extends Identifiable<K>, M extends Msg, K> {
-  RegistryStore(this._reg, Bus bus) {
+class RegistryMemory<K, E extends Identifiable<K>, M extends Msg> {
+  RegistryMemory(this._reg, Bus bus) {
     _sub = bus.on<M>(_apply);
     // a disconnect loses the push freshness guarantee → confirmed entries stale.
     _connSub = bus.connection.listen((up) {
@@ -122,76 +119,80 @@ class RegistryStore<S extends Identifiable<K>, M extends Msg, K> {
     });
   }
 
-  final Registry<S, M, K> _reg;
-  final Store<S, K> _base = Store<S, K>(); // confirmed truth only
+  final Registry<K, E, M> _reg;
+  IdentifiableMap<E, K> _base = {}; // confirmed truth only
+  IdentifiableMap<E, K> _eff = {}; // base folded through pending overlays (cache)
   final Map<K, Flags> _flags = {};
-  final List<_Pending<K, M>> _pending = []; // ordered optimistic overlays
+  final List<_Pending<M>> _pending = []; // ordered optimistic overlays
   final StreamController<K> _changes = StreamController<K>.broadcast(sync: true);
   late final StreamSubscription<Envelope> _sub;
   late final StreamSubscription<bool> _connSub;
 
+  Set<K> _diff(IdentifiableMap<E, K> a, IdentifiableMap<E, K> b) => {
+        for (final k in {...a.keys, ...b.keys})
+          if (!identical(a[k], b[k])) k
+      };
+
+  /// Recompute the effective map (base folded through every pending message) and
+  /// emit the keys whose effective value changed, unioned with [extra].
+  void _refresh(Set<K> extra) {
+    final prev = _eff;
+    var m = _base;
+    for (final p in _pending) {
+      m = _reg.reduce(m, p.msg);
+    }
+    _eff = m;
+    for (final k in {..._diff(prev, m), ...extra}) {
+      _changes.add(k);
+    }
+  }
+
   void _apply(M msg, Envelope env) {
-    final key = _reg.keyOf(msg);
     // optimistic + correlationId → a pending overlay; base is NOT touched.
     if (env.optimistic && env.correlationId != null) {
-      _pending.add(_Pending(env.correlationId!, key, msg));
-      _changes.add(key);
+      _pending.add(_Pending(env.correlationId!, msg));
+      _refresh(const {});
       return;
     }
     // a confirmed/remote message carrying a pending correlation id CONFIRMS it:
-    // drop the optimistic overlay; the real effect below replaces it.
-    final affected = <K>{key};
+    // drop the optimistic overlay; the real effect below replaces it in base.
     final cid = env.correlationId;
-    if (cid != null) {
-      for (final p in _pending) {
-        if (p.correlationId == cid) affected.add(p.key);
+    if (cid != null) _pending.removeWhere((p) => p.correlationId == cid);
+    final before = _base;
+    _base = _reg.reduce(before, msg);
+    final touched = _diff(before, _base);
+    for (final k in touched) {
+      if (_base.containsKey(k)) {
+        _flags[k] = Flags(source: env.source, stability: Stability.confirmed);
+      } else {
+        _flags.remove(k);
       }
-      _pending.removeWhere((p) => p.correlationId == cid);
     }
-    final next = _reg.reduce(_base[key], msg);
-    if (next == null) {
-      _base.removeById(key);
-      _flags.remove(key);
-    } else {
-      _base.upsert(next);
-      _flags[key] = Flags(source: env.source, stability: Stability.confirmed);
-    }
-    for (final k in affected) {
-      _changes.add(k);
-    }
+    _refresh(touched);
   }
 
   /// Discard the optimistic overlay(s) for [correlationId] — the prediction
   /// failed (timeout/reject). Base is untouched, so any superseding writes that
   /// landed meanwhile survive.
   void rollback(String correlationId) {
-    final keys = <K>{
-      for (final p in _pending)
-        if (p.correlationId == correlationId) p.key
-    };
     _pending.removeWhere((p) => p.correlationId == correlationId);
-    for (final k in keys) {
-      _changes.add(k);
-    }
+    _refresh(const {});
   }
 
-  /// The EFFECTIVE value at [key]: confirmed base folded through any pending
-  /// optimistic overlays for that key.
-  S? operator [](K key) {
-    var s = _base[key];
-    for (final p in _pending) {
-      if (p.key == key) s = _reg.reduce(s, p.msg);
-    }
-    return s;
-  }
+  /// The EFFECTIVE value at [key]: confirmed base folded through the pending
+  /// optimistic overlays.
+  E? operator [](K key) => _eff[key];
 
   /// The CONFIRMED value at [key] — base only, ignoring overlays.
-  S? confirmed(K key) => _base[key];
+  E? confirmed(K key) => _base[key];
 
-  /// Flags at [key]: `optimistic`/`pending` while an overlay is in flight, else
-  /// the confirmed base flags.
+  /// True when an overlay currently changes [key]'s effective value from base.
+  bool _overlaid(K key) => !identical(_eff[key], _base[key]);
+
+  /// Flags at [key]: `optimistic`/`pending` while an overlay changes it, else the
+  /// confirmed base flags.
   Flags? flagsOf(K key) {
-    if (_pending.any((p) => p.key == key)) {
+    if (_overlaid(key)) {
       return const Flags(
           source: CommonSource.optimistic, stability: Stability.pending);
     }
@@ -212,37 +213,14 @@ class RegistryStore<S extends Identifiable<K>, M extends Msg, K> {
   /// A fetch for [key] errored.
   void markFailed(K key) => _setStability(key, Stability.failed);
 
-  Fetch<K>? _fetch;
-
-  /// Wire the transport: how to load a [key] (hit the source, dispatch the
-  /// result back onto the bus). Without it, [surface] is inert — data is expected
-  /// to arrive by push instead.
-  void onFetch(Fetch<K> fetch) => _fetch = fetch;
-
-  /// Door 2 (nav trigger): bring [key]'s data UP to the renderable layer — the
-  /// screen saying "I'm live on this now, provide it fresh; I'll show whatever
-  /// surfaces." Fetches only if it is missing, stale, or failed; a
-  /// `confirmed`/`loading`/`pending` key is a no-op. Idempotent, so it is safe to
-  /// call on every navigation — which is why the trigger needs no notion of WHERE
-  /// you came from: arriving at an already-fresh key does nothing; only an unseen
-  /// or stale key fetches. It promises no outcome — failure/loading stay visible
-  /// via [Stability].
-  void surface(K key) {
-    final fetch = _fetch;
-    if (fetch == null) return;
-    switch (flagsOf(key)?.stability) {
-      case Stability.confirmed:
-      case Stability.loading:
-      case Stability.pending:
-        return; // already present or in flight
-      case null:
-      case Stability.missing:
-      case Stability.stale:
-      case Stability.failed:
-        markLoading(key);
-        fetch(key).catchError((Object _) => markFailed(key));
-    }
-  }
+  /// Door 2 metadata predicate: does [key] need loading? True when it is missing,
+  /// stale, or failed; false when `confirmed`/`loading`/`pending` (present or
+  /// in-flight). The generated nav trigger reads this and, if true, marks it
+  /// loading and puts a `SurfaceMsg` on the bus — the store never fetches.
+  bool needs(K key) => switch (flagsOf(key)?.stability) {
+        Stability.confirmed || Stability.loading || Stability.pending => false,
+        _ => true,
+      };
 
   /// Mark a CONFIRMED entry stale (server invalidation, a related change, or a
   /// disconnect). A no-op on an entry that isn't currently confirmed.
@@ -259,17 +237,8 @@ class RegistryStore<S extends Identifiable<K>, M extends Msg, K> {
     }
   }
 
-  /// All effective entries (base ∪ optimistic-only), each folded.
-  Iterable<S> get values sync* {
-    final keys = <K>{
-      for (final e in _base.values) e.id,
-      for (final p in _pending) p.key,
-    };
-    for (final key in keys) {
-      final v = this[key];
-      if (v != null) yield v;
-    }
-  }
+  /// All effective entries — base folded through the optimistic overlays.
+  Iterable<E> get values => _eff.values;
 
   /// Keys whose EFFECTIVE value changed — base apply, overlay add, confirm, or
   /// rollback. Surgical, per key. (Also fires on flag-only changes; use [consume]
@@ -297,23 +266,26 @@ class RegistryStore<S extends Identifiable<K>, M extends Msg, K> {
   /// a later [surface] simply refetches anything dropped. Loading/pending and
   /// still-watched entries are kept.
   void gc() {
-    for (final key in [for (final e in _base.values) e.id]) {
+    var changed = false;
+    for (final key in _base.keys.toList()) {
       if (watchers(key) > 0) continue;
-      if (_pending.any((p) => p.key == key)) continue;
-      _base.removeById(key);
+      if (_overlaid(key)) continue; // an overlay still needs it
+      _base.remove(key);
       _flags.remove(key);
+      changed = true;
     }
+    if (changed) _refresh(const {});
   }
 
   /// Door 1: CONSUME [key] — the effective value now, then on every VALUE change
   /// (flag-only flips emit nothing). While a consumer holds this subscription the
   /// entry is RETAINED ([watchers] counts it); when the last one cancels it
   /// becomes [gc]-eligible. Universal: wrap in any framework's stream primitive.
-  Stream<S?> consume(K key) {
-    late final StreamController<S?> ctrl;
+  Stream<E?> consume(K key) {
+    late final StreamController<E?> ctrl;
     StreamSubscription<K>? sub;
-    S? last;
-    ctrl = StreamController<S?>(
+    E? last;
+    ctrl = StreamController<E?>(
       onListen: () {
         _retain(key);
         last = this[key];
@@ -362,7 +334,6 @@ class RegistryStore<S extends Identifiable<K>, M extends Msg, K> {
   void dispose() {
     _sub.cancel();
     _connSub.cancel();
-    _base.dispose();
     _changes.close();
   }
 }

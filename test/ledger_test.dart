@@ -25,12 +25,15 @@ class _Reset extends _CountMsg with Identifiable<String> {
   final String id;
 }
 
-final class _Counter extends Registry<_CountState, _CountMsg, String> {
+final class _Counter extends Registry<String, _CountState, _CountMsg> {
   const _Counter();
   @override
-  _CountState? reduce(_CountState? s, _CountMsg m) => switch (m) {
-        _Inc(:final id, :final by) => _CountState(id, (s?.value ?? 0) + by),
-        _Reset() => null,
+  IdentifiableMap<_CountState, String> reduce(
+          IdentifiableMap<_CountState, String> entities, _CountMsg m) =>
+      switch (m) {
+        _Inc(:final id, :final by) =>
+          entities.upsert(_CountState(id, (entities[id]?.value ?? 0) + by)),
+        _Reset(:final id) => entities.removeById(id),
       };
 }
 

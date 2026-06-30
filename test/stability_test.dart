@@ -19,11 +19,13 @@ class _Set extends _DocMsg with Identifiable<String> {
   final String text;
 }
 
-final class _Docs extends Registry<_Doc, _DocMsg, String> {
+final class _Docs extends Registry<String, _Doc, _DocMsg> {
   const _Docs();
   @override
-  _Doc? reduce(_Doc? s, _DocMsg m) => switch (m) {
-        _Set(:final id, :final text) => _Doc(id, text),
+  IdentifiableMap<_Doc, String> reduce(
+          IdentifiableMap<_Doc, String> entities, _DocMsg m) =>
+      switch (m) {
+        _Set(:final id, :final text) => entities.upsert(_Doc(id, text)),
       };
 }
 
@@ -31,7 +33,7 @@ void main() {
   test('disconnect flips confirmed entries to stale; reconnect+remote re-confirms',
       () {
     final bus = Bus();
-    final store = RegistryStore(const _Docs(), bus);
+    final store = RegistryMemory(const _Docs(), bus);
     bus.dispatch(_Set('a', 'hi'));
     expect(store.flagsOf('a')?.stability, Stability.confirmed);
 
@@ -46,7 +48,7 @@ void main() {
 
   test('markLoading / markFailed move stability, value untouched', () {
     final bus = Bus();
-    final store = RegistryStore(const _Docs(), bus);
+    final store = RegistryMemory(const _Docs(), bus);
     bus.dispatch(_Set('a', 'hi'));
 
     store.markLoading('a');
@@ -59,7 +61,7 @@ void main() {
 
   test('loading a missing key: flags exist, value still null', () {
     final bus = Bus();
-    final store = RegistryStore(const _Docs(), bus);
+    final store = RegistryMemory(const _Docs(), bus);
     store.markLoading('a'); // fetch on entry, nothing cached yet
     expect(store['a'], isNull);
     expect(store.flagsOf('a')?.stability, Stability.loading);
@@ -67,7 +69,7 @@ void main() {
 
   test('invalidate only affects confirmed entries', () {
     final bus = Bus();
-    final store = RegistryStore(const _Docs(), bus);
+    final store = RegistryMemory(const _Docs(), bus);
     bus.dispatch(_Set('a', 'hi'));
     store.markLoading('a'); // now loading, not confirmed
     store.invalidate('a'); // no-op (not confirmed)
@@ -76,7 +78,7 @@ void main() {
 
   test('stability transitions emit change events', () {
     final bus = Bus();
-    final store = RegistryStore(const _Docs(), bus);
+    final store = RegistryMemory(const _Docs(), bus);
     bus.dispatch(_Set('a', 'hi'));
     final keys = <String>[];
     store.changes.listen(keys.add);

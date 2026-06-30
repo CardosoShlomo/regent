@@ -15,10 +15,12 @@ class _Add extends Msg with Identifiable<String> {
   final int by;
 }
 
-final class _Counter extends Registry<_Count, _Add, String> {
+final class _Counter extends Registry<String, _Count, _Add> {
   const _Counter();
   @override
-  _Count? reduce(_Count? s, _Add m) => _Count(m.id, (s?.value ?? 0) + m.by);
+  IdentifiableMap<_Count, String> reduce(
+          IdentifiableMap<_Count, String> states, _Add m) =>
+      states.upsert(_Count(m.id, (states[m.id]?.value ?? 0) + m.by));
 }
 
 void main() {

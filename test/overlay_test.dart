@@ -19,18 +19,21 @@ class _Add extends _CountMsg with Identifiable<String> {
   final int by;
 }
 
-final class _Counter extends Registry<_Count, _CountMsg, String> {
+final class _Counter extends Registry<String, _Count, _CountMsg> {
   const _Counter();
   @override
-  _Count? reduce(_Count? s, _CountMsg m) => switch (m) {
-        _Add(:final id, :final by) => _Count(id, (s?.value ?? 0) + by),
+  IdentifiableMap<_Count, String> reduce(
+          IdentifiableMap<_Count, String> states, _CountMsg m) =>
+      switch (m) {
+        _Add(:final id, :final by) =>
+          states.upsert(_Count(id, (states[id]?.value ?? 0) + by)),
       };
 }
 
 void main() {
   test('optimistic overlay shows instantly; base stays untouched', () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     bus.dispatch(_Add('a', 10)); // confirmed base = 10
     bus.dispatch(_Add('a', 5), optimistic: true, correlationId: 'C1');
 
@@ -42,7 +45,7 @@ void main() {
 
   test('remote with matching correlationId confirms (promote + drop overlay)', () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     bus.dispatch(_Add('a', 10));
     bus.dispatch(_Add('a', 5), optimistic: true, correlationId: 'C1');
     // the real server effect arrives, carrying C1 → confirms
@@ -55,7 +58,7 @@ void main() {
 
   test('rollback discards the prediction, returns to base', () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     bus.dispatch(_Add('a', 10));
     bus.dispatch(_Add('a', 5), optimistic: true, correlationId: 'C1');
     store.rollback('C1');
@@ -67,7 +70,7 @@ void main() {
   test('THE PROOF: rollback after a superseding write keeps the superseding write',
       () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     bus.dispatch(_Add('a', 10)); // base = 10
     bus.dispatch(_Add('a', 5), optimistic: true, correlationId: 'C1');
     expect(store['a']?.value, 15); // effective with overlay
@@ -85,7 +88,7 @@ void main() {
 
   test('changes fire on overlay add, confirm, and rollback', () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     final keys = <String>[];
     store.changes.listen(keys.add);
     bus.dispatch(_Add('a', 10)); // base

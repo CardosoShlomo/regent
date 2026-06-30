@@ -25,19 +25,22 @@ class _Reset extends _CounterMsg with Identifiable<String> {
   final String id;
 }
 
-final class _Counter extends Registry<_CounterState, _CounterMsg, String> {
+final class _Counter extends Registry<String, _CounterState, _CounterMsg> {
   const _Counter();
   @override
-  _CounterState? reduce(_CounterState? s, _CounterMsg m) => switch (m) {
-        _Inc(:final id, :final by) => _CounterState(id, (s?.value ?? 0) + by),
-        _Reset() => null, // remove
+  IdentifiableMap<_CounterState, String> reduce(
+          IdentifiableMap<_CounterState, String> states, _CounterMsg m) =>
+      switch (m) {
+        _Inc(:final id, :final by) =>
+          states.upsert(_CounterState(id, (states[id]?.value ?? 0) + by)),
+        _Reset(:final id) => states.removeById(id), // remove
       };
 }
 
 void main() {
   test('dispatch folds via reduce; flags = confirmed/remote', () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     bus.dispatch(_Inc('a', 5));
     expect(store['a']?.value, 5);
     expect(store.flagsOf('a'),
@@ -48,14 +51,14 @@ void main() {
 
   test('optimistic dispatch tags the source flag', () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     bus.dispatch(_Inc('a', 1), source: CommonSource.optimistic);
     expect(store.flagsOf('a')?.source, CommonSource.optimistic);
   });
 
   test('reduce -> null removes the entry and its flags', () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     bus.dispatch(_Inc('a', 5));
     bus.dispatch(_Reset('a'));
     expect(store['a'], isNull);
@@ -64,7 +67,7 @@ void main() {
 
   test('a pure guard vetoes a message without coupling the bus', () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     bus.guard((e) => e.msg is _Reset ? null : e); // drop resets
     bus.dispatch(_Inc('a', 5));
     bus.dispatch(_Reset('a')); // vetoed → 'a' survives
@@ -73,7 +76,7 @@ void main() {
 
   test('changes stream emits the key per mutation', () {
     final bus = Bus();
-    final store = RegistryStore(const _Counter(), bus);
+    final store = RegistryMemory(const _Counter(), bus);
     final keys = <String>[];
     store.changes.listen(keys.add);
     bus.dispatch(_Inc('a', 1));
