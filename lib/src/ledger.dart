@@ -41,6 +41,7 @@ class Ledger {
 
   final List<Guard> _guards = [];
   final List<void Function(String)> _rollbacks = []; // per-store overlay rollback
+  final List<void Function()> _disposers = []; // dispose the stores `close` owns
   int _seq = 0; // monotonic correlation id source (no time/random dependency)
   late final StreamSubscription<Envelope> _sub;
   late final StreamSubscription<bool> _connSub;
@@ -97,16 +98,23 @@ class Ledger {
       Registry<K, E, M> reg) {
     final store = RegistryMemory<K, E, M>(reg, _posted);
     _rollbacks.add(store.rollback);
+    _disposers.add(store.dispose);
     return store;
   }
 
   /// A live connection family for [reg], driven off the post-guard stream.
   ConnectionMemory<K, T, I, SK, M> connection<K, T extends Identifiable<I>, I,
-              SK extends Comparable<Object?>, M extends Msg>(
-          ConnectionRegistry<K, T, I, SK, M> reg) =>
-      ConnectionMemory<K, T, I, SK, M>(reg, _posted);
+      SK extends Comparable<Object?>, M extends Msg>(
+      ConnectionRegistry<K, T, I, SK, M> reg) {
+    final store = ConnectionMemory<K, T, I, SK, M>(reg, _posted);
+    _disposers.add(store.dispose);
+    return store;
+  }
 
   void close() {
+    for (final d in _disposers) {
+      d();
+    }
     _sub.cancel();
     _connSub.cancel();
     journal.close();

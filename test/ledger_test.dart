@@ -70,4 +70,16 @@ void main() {
     ledger.setConnected(false); // disconnect → confirmed entries go stale
     expect(counter.flagsOf('a')?.stability, Stability.stale);
   });
+
+  test('close disposes the stores it created', () async {
+    final ledger = Ledger();
+    final counter = ledger.registry(const _Counter());
+    var disposed = false;
+    // The store's change stream completes only when its controller is closed —
+    // which `dispose` does, so a `done` here proves `close` fanned out to it.
+    counter.changes.listen((_) {}, onDone: () => disposed = true);
+    ledger.close();
+    await Future<void>.delayed(Duration.zero);
+    expect(disposed, isTrue);
+  });
 }
