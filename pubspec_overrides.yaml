@@ -1,7 +1,0 @@
-# Local dev: resolve identifiable (key-first IdentifiableMap + Store) and its
-# canon_codec dep (@ids nodes) from source.
-dependency_overrides:
-  identifiable:
-    path: ../identifiable
-  canon_codec:
-    path: ../canon_codec
