@@ -7,13 +7,13 @@ import 'msg.dart';
 import 'store.dart';
 
 /// The cohesive entry point: a JOURNAL (the complete, ungated record every
-/// message lands in) and POSTING (guards decide what becomes state). Registries
-/// and connections are registered through it and subscribe to the post-guard
-/// stream, so a vetoed message still appears in the journal (replay / ring
-/// buffer / debug) but never reaches state — "control without dirtying".
+/// message lands in) and POSTING (guards decide what the ledger ADMITS).
+/// Stores reduce the admitted feed and [on] taps the same feed, so a vetoed
+/// message still appears in the journal (replay / ring buffer / debug) but
+/// never reaches state OR effects — "control without dirtying".
 ///
-/// Dispatch onto the journal (`dispatch`), tap the journal for a complete feed
-/// (`journal`), and register stores via `store`.
+/// Dispatch onto the journal (`dispatch`), subscribe to admitted messages
+/// (`on`), tap the raw record (`journal.on`), and register stores via `store`.
 class Ledger {
   Ledger() {
     // forward EVERY journal message through the posting guards to the registries.
@@ -34,8 +34,8 @@ class Ledger {
   /// The complete, ungated record. Dispatch here; tap here for replay/debug.
   final Bus journal = Bus();
 
-  /// The post-guard stream registries subscribe to. Private — you reach it only
-  /// by registering a store.
+  /// The post-guard stream — what the ledger ADMITTED. Stores reduce it and
+  /// [on] taps it, so state and effects always see the same feed.
   final Bus _posted = Bus();
 
   final List<Guard<Msg>> _guards = [];
@@ -56,11 +56,13 @@ class Ledger {
       journal.dispatch(msg,
           source: source, optimistic: optimistic, correlationId: correlationId);
 
-  /// Subscribe to typed messages on the journal (the complete feed) — the bus's
-  /// listen door. Returns the subscription to cancel.
+  /// Subscribe to typed messages the ledger ADMITTED — post-guard, the same
+  /// feed the stores reduce, so an effect never fires on a vetoed message.
+  /// For the complete ungated record (replay/debug/transport), tap
+  /// `journal.on<M>` explicitly. Returns the subscription to cancel.
   StreamSubscription<Envelope> on<M extends Msg>(
           void Function(M msg, Envelope env) handler) =>
-      journal.on<M>(handler);
+      _posted.on<M>(handler);
 
   /// Discard the optimistic overlay(s) for [correlationId] across every store —
   /// the prediction failed. Confirmed/superseding writes survive (base is clean).

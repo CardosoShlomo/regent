@@ -45,6 +45,8 @@ void main() {
 
     final journalSeen = <Object>[];
     ledger.journal.on<Msg>((m, e) => journalSeen.add(m));
+    final admittedSeen = <Object>[];
+    ledger.on<Msg>((m, e) => admittedSeen.add(m));
 
     ledger.guard<_Reset>((msg, env) => null); // drop resets at posting
 
@@ -52,6 +54,7 @@ void main() {
     ledger.dispatch(_Reset('a')); // vetoed at posting
 
     expect(counter['a']?.value, 5); // reset never posted to state
+    expect(admittedSeen.length, 1); // ledger.on = the ADMITTED feed — no ghost effects
     expect(journalSeen.length, 2); // …but the journal kept BOTH (complete record)
   });
 
