@@ -20,7 +20,7 @@ class Ledger {
     _sub = journal.on<Msg>((msg, env) {
       var e = env;
       for (final g in _guards) {
-        final next = g(e);
+        final next = g(e.msg, e);
         if (next == null) return; // vetoed at posting — journal keeps it, state doesn't
         e = next;
       }
@@ -38,15 +38,17 @@ class Ledger {
   /// by registering a store.
   final Bus _posted = Bus();
 
-  final List<Guard> _guards = [];
+  final List<Guard<Msg>> _guards = [];
   final List<void Function(String)> _rollbacks = []; // per-store overlay rollback
   final List<void Function()> _disposers = []; // dispose the stores `close` owns
   int _seq = 0; // monotonic correlation id source (no time/random dependency)
   late final StreamSubscription<Envelope> _sub;
   late final StreamSubscription<bool> _connSub;
 
-  /// A PURE posting guard — gate what becomes state without touching the journal.
-  void guard(Guard g) => _guards.add(g);
+  /// A PURE posting guard for the [M] family — gate what becomes state without
+  /// touching the journal. A non-[M] envelope passes through unchanged.
+  void guard<M extends Msg>(Guard<M> g) => _guards
+      .add((msg, env) => msg is M ? g(msg, env) : env);
 
   /// Push a message onto the journal (it then posts through the guards).
   void dispatch(Msg msg,

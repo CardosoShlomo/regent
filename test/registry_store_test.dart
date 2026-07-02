@@ -68,7 +68,7 @@ void main() {
   test('a pure guard vetoes a message without coupling the bus', () {
     final bus = Bus();
     final store = StoreMemory(const _Counter(), bus);
-    bus.guard((e) => e.msg is _Reset ? null : e); // drop resets
+    bus.guard<_Reset>((msg, env) => null); // drop resets
     bus.dispatch(_Inc('a', 5));
     bus.dispatch(_Reset('a')); // vetoed → 'a' survives
     expect(store['a']?.value, 5);

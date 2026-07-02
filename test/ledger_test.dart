@@ -46,7 +46,7 @@ void main() {
     final journalSeen = <Object>[];
     ledger.journal.on<Msg>((m, e) => journalSeen.add(m));
 
-    ledger.guard((e) => e.msg is _Reset ? null : e); // drop resets at posting
+    ledger.guard<_Reset>((msg, env) => null); // drop resets at posting
 
     ledger.dispatch(_Inc('a', 5));
     ledger.dispatch(_Reset('a')); // vetoed at posting

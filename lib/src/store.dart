@@ -24,7 +24,10 @@ mixin StoreNode<Self extends StoreNode<Self, Ids>, Ids> on Enum {
 /// or return null to veto it. It runs in the replay/optimistic path, so it MUST
 /// be pure — a riverpod app guards the flow with one of these without coupling
 /// the bus to it; side effects belong in a subscriber ([Bus.on]), not a guard.
-typedef Guard = Envelope? Function(Envelope);
+///
+/// Typed like [Bus.on]: a `Guard<AdMsg>` sees only that family — every other
+/// envelope passes through it untouched; the default `M = Msg` sees the feed.
+typedef Guard<M extends Msg> = Envelope? Function(M msg, Envelope env);
 
 /// The message bus — the RICH tier's transport. Dispatch envelopes through
 /// guards to typed subscribers. Transport-agnostic: feed it from WS, HTTP, a
@@ -34,10 +37,12 @@ typedef Guard = Envelope? Function(Envelope);
 class Bus {
   final StreamController<Envelope> _controller =
       StreamController<Envelope>.broadcast(sync: true);
-  final List<Guard> _guards = [];
+  final List<Guard<Msg>> _guards = [];
 
-  /// Register a pure guard. Runs on every dispatch, in registration order.
-  void guard(Guard g) => _guards.add(g);
+  /// Register a pure guard for the [M] family. Runs on every dispatch, in
+  /// registration order; a non-[M] envelope passes through unchanged.
+  void guard<M extends Msg>(Guard<M> g) => _guards
+      .add((msg, env) => msg is M ? g(msg, env) : env);
 
   /// Push a message through the bus. `source` tags provenance (defaults to the
   /// common remote/optimistic); `optimistic` is the overlay-routing signal — an
@@ -51,7 +56,7 @@ class Bus {
         optimistic: optimistic,
         correlationId: correlationId);
     for (final g in _guards) {
-      final next = g(env);
+      final next = g(env.msg, env);
       if (next == null) return; // vetoed
       env = next;
     }
