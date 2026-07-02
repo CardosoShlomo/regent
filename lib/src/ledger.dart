@@ -56,8 +56,14 @@ class Ledger {
       journal.dispatch(msg,
           source: source, optimistic: optimistic, correlationId: correlationId);
 
-  /// Subscribe to typed messages the ledger ADMITTED — post-guard, the same
-  /// feed the stores reduce, so an effect never fires on a vetoed message.
+  /// The MANUAL-STORE door: subscribe to typed messages the ledger ADMITTED —
+  /// the exact feed registered stores reduce — and wire your own reduce logic
+  /// (a riverpod Notifier, a bloc) where [Store] is too simple. Side-effect
+  /// subscribers (snackbars, sounds) belong here too: post-guard, so nothing
+  /// fires on a vetoed message.
+  ///
+  /// A manual store forgoes [StoreMemory]'s machinery — the envelope carries
+  /// `optimistic`/`correlationId`, but overlays and [rollback] are on you.
   /// For the complete ungated record (replay/debug/transport), tap
   /// `journal.on<M>` explicitly. Returns the subscription to cancel.
   StreamSubscription<Envelope> on<M extends Msg>(
