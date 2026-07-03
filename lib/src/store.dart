@@ -83,10 +83,18 @@ class Bus {
     }
   }
 
-  /// Subscribe to messages of type [M]. Returns the subscription to cancel.
-  StreamSubscription<Envelope> on<M extends Msg>(
-          void Function(M msg, Envelope env) handler) =>
-      _controller.stream.where((e) => e.msg is M).listen((e) => handler(e.msg as M, e));
+  /// The [M]-typed feed as a STREAM — composable (`where`/`asyncMap`), and
+  /// `await for`-able: a worker gets pull semantics with natural backpressure
+  /// (pause the subscription, the feed waits). `.listen(handler)` for the
+  /// callback style.
+  Stream<M> on<M extends Msg>() =>
+      _controller.stream.where((e) => e.msg is M).map((e) => e.msg as M);
+
+  /// Like [on], but paired with each message's [Envelope] — for the rare
+  /// effect that needs provenance/correlation.
+  Stream<(M, Envelope)> envelopesOf<M extends Msg>() => _controller.stream
+      .where((e) => e.msg is M)
+      .map((e) => (e.msg as M, e));
 
   bool _connected = true;
   final StreamController<bool> _conn = StreamController<bool>.broadcast(sync: true);
@@ -148,7 +156,7 @@ class _Pending<M> {
 /// after a superseding write keeps the superseding write — see the test.
 class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   StoreMemory(this._reg, Bus bus) {
-    _sub = bus.on<M>(_apply);
+    _sub = bus.envelopesOf<M>().listen((r) => _apply(r.$1, r.$2));
     // a disconnect loses the push freshness guarantee → confirmed entries stale.
     _connSub = bus.connection.listen((up) {
       if (!up) invalidateAll();
@@ -163,7 +171,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   final StreamController<K> _changes = StreamController<K>.broadcast(sync: true);
   final StreamController<void> _structure =
       StreamController<void>.broadcast(sync: true);
-  late final StreamSubscription<Envelope> _sub;
+  late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<bool> _connSub;
 
   Set<K> _diff(IdentifiableMap<K, E> a, IdentifiableMap<K, E> b) => {

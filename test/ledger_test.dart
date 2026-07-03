@@ -44,9 +44,9 @@ void main() {
     final counter = ledger.store(const _Counter());
 
     final journalSeen = <Object>[];
-    ledger.journal.on<Msg>((m, e) => journalSeen.add(m));
+    ledger.journal.on<Msg>().listen(journalSeen.add);
     final admittedSeen = <Object>[];
-    ledger.on<Msg>((m, e) => admittedSeen.add(m));
+    ledger.on<Msg>().listen(admittedSeen.add);
 
     ledger.guard<_Reset>((msg, env) => null); // drop resets at posting
 
@@ -79,7 +79,7 @@ void main() {
     final counter = ledger.store(const _Counter());
     // message → effect → message: the normal bus pattern. The re-entrant
     // dispatch queues and drains in order instead of blowing the sync stream.
-    ledger.on<_Inc>((msg, env) {
+    ledger.on<_Inc>().listen((msg) {
       if (msg.by == 5) ledger.dispatch(_Inc('a', 1));
     });
     ledger.dispatch(_Inc('a', 5));

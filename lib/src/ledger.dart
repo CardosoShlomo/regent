@@ -17,7 +17,8 @@ import 'store.dart';
 class Ledger {
   Ledger() {
     // forward EVERY journal message through the posting guards to the registries.
-    _sub = journal.on<Msg>((msg, env) {
+    _sub = journal.envelopesOf<Msg>().listen((r) {
+      final (msg, env) = r;
       var e = env;
       for (final g in _guards) {
         final next = g(e.msg, e);
@@ -42,7 +43,7 @@ class Ledger {
   final List<void Function(String)> _rollbacks = []; // per-store overlay rollback
   final List<void Function()> _disposers = []; // dispose the stores `close` owns
   int _seq = 0; // monotonic correlation id source (no time/random dependency)
-  late final StreamSubscription<Envelope> _sub;
+  late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<bool> _connSub;
 
   /// A PURE posting guard for the [M] family — gate what becomes state without
@@ -65,10 +66,11 @@ class Ledger {
   /// A manual store forgoes [StoreMemory]'s machinery — the envelope carries
   /// `optimistic`/`correlationId`, but overlays and [rollback] are on you.
   /// For the complete ungated record (replay/debug/transport), tap
-  /// `journal.on<M>` explicitly. Returns the subscription to cancel.
-  StreamSubscription<Envelope> on<M extends Msg>(
-          void Function(M msg, Envelope env) handler) =>
-      _posted.on<M>(handler);
+  /// `journal.on<M>` explicitly.
+  Stream<M> on<M extends Msg>() => _posted.on<M>();
+
+  /// Like [on], with each message's [Envelope] (provenance/correlation).
+  Stream<(M, Envelope)> envelopesOf<M extends Msg>() => _posted.envelopesOf<M>();
 
   /// Discard the optimistic overlay(s) for [correlationId] across every store —
   /// the prediction failed. Confirmed/superseding writes survive (base is clean).
