@@ -19,8 +19,11 @@ const stores = Stores();
 /// The contract the `@stores` enum wears: a row is a held [Store] instance,
 /// nothing more (`ads(Ads())`).
 mixin StoreNode<Self extends StoreNode<Self>> on Enum {
-  Store get store;
+  AnyStore get store;
 }
+
+/// What a `@stores` row may hold: a keyed [Store] or a unit [ValueStore].
+abstract interface class AnyStore {}
 
 /// A PURE interceptor in the dispatch pipeline: inspect/transform an envelope,
 /// or return null to veto it. It runs in the replay/optimistic path, so it MUST
@@ -122,7 +125,8 @@ class Bus {
 /// The PURE, const registry descriptor: how a message folds into an entry's
 /// state. No mutable state, no `ref`, const — so it can sit in a spec. The live
 /// store ([StoreMemory]) is created separately and wired to a [Bus].
-abstract class Store<K, E extends Identifiable<K>, M extends Msg> {
+abstract class Store<K, E extends Identifiable<K>, M extends Msg>
+    implements AnyStore {
   const Store();
 
   /// Fold a message into the registry's keyed collection and return the NEXT
@@ -132,6 +136,48 @@ abstract class Store<K, E extends Identifiable<K>, M extends Msg> {
   /// `entities.upsert(x)` · `entities.upsertAll(xs)` · `entities.removeById(id)`
   /// · `entities.updateById(id, (cur) => …)`.
   IdentifiableMap<K, E> reduce(IdentifiableMap<K, E> entities, M msg);
+}
+
+/// The UNIT sibling of [Store]: one value, cardinality one — for entities
+/// whose identity is the session (the wire sends their facts KEYLESS: a
+/// viewer profile, a requests+unseen state). Same purity contract.
+abstract class ValueStore<S, M extends Msg> implements AnyStore {
+  const ValueStore();
+
+  /// The value before any fact has arrived.
+  S get initial;
+
+  /// Fold a message into the value and return the NEXT value. PURE.
+  S reduce(S state, M msg);
+}
+
+/// The live memory for a [ValueStore]: the value driven off a [Bus].
+class ValueMemory<S, M extends Msg> {
+  ValueMemory(this._spec, Bus bus) : _value = _spec.initial {
+    _sub = bus.on<M>().listen((msg) {
+      final next = _spec.reduce(_value, msg);
+      if (identical(next, _value)) return;
+      _value = next;
+      _changes.add(null);
+    });
+  }
+
+  final ValueStore<S, M> _spec;
+  S _value;
+  final StreamController<void> _changes =
+      StreamController<void>.broadcast(sync: true);
+  late final StreamSubscription<Object?> _sub;
+
+  /// The value, now.
+  S get value => _value;
+
+  /// Fires on every value change.
+  Stream<void> get changes => _changes.stream;
+
+  void dispose() {
+    _sub.cancel();
+    _changes.close();
+  }
 }
 
 /// One in-flight optimistic prediction: the message to re-fold over the base,

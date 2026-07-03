@@ -113,6 +113,13 @@ class Ledger {
     return mem;
   }
 
+  /// A live UNIT store for [spec] (cardinality one, keyless facts).
+  ValueMemory<S, M> value<S, M extends Msg>(ValueStore<S, M> spec) {
+    final mem = ValueMemory<S, M>(spec, _posted);
+    _disposers.add(mem.dispose);
+    return mem;
+  }
+
   void close() {
     for (final d in _disposers) {
       d();
