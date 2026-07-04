@@ -203,6 +203,15 @@ abstract class Store<K, E extends Identifiable<K>, M extends Msg>
   /// facts put keys in flight (key-correlated status — the key IS the
   /// correlation). Null when the store has no requests.
   Awaits<K, Msg>? get awaits => null;
+
+  /// Door 2 — the SCOPE-ENTRY ask: called when a screen keyed by this
+  /// entity's id node is actually navigated to (never on a render). Return
+  /// the request fact to dispatch, or null when [row]'s knowledge suffices.
+  /// The fact's family should be the [awaits] twin's, so dispatching it
+  /// marks the key in flight by construction; the generated trigger skips
+  /// keys already in flight. [row]/[flags] are the RAW store state — merge
+  /// edges never mask fetch-need. PURE: judge, don't act.
+  Msg? surface(K key, E? row, Flags? flags) => null;
 }
 
 /// The correlation twin of a [Store]: names the request family [R] (kept OUT
@@ -530,8 +539,9 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
 
   /// Door 2 metadata predicate: does [key] need loading? True when it is missing,
   /// stale, or failed; false when `confirmed`/`loading`/`pending` (present or
-  /// in-flight). The generated nav trigger reads this and, if true, marks it
-  /// loading and puts a `SurfaceMsg` on the bus — the store never fetches.
+  /// in-flight). A convenience for [Store.surface] overrides — the generated
+  /// nav trigger consults `surface(key, row, flags)`, and dispatching its
+  /// answer marks the key loading via the [Awaits] twin.
   bool needs(K key) => switch (flagsOf(key)?.stability) {
         Stability.confirmed || Stability.loading || Stability.pending => false,
         _ => true,
