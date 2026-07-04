@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:ledger/ledger.dart';
+import 'package:regent/regent.dart';
 
 class _Doc with Identifiable<String> {
   _Doc(this.id, this.text);

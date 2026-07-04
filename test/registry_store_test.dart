@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:ledger/ledger.dart';
+import 'package:regent/regent.dart';
 
 class _CounterState with Identifiable<String> {
   _CounterState(this.id, this.value);

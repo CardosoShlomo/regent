@@ -1,5 +1,5 @@
 import 'package:identifiable/identifiable.dart';
-import 'package:ledger/ledger.dart';
+import 'package:regent/regent.dart';
 import 'package:test/test.dart';
 
 sealed class _DocMsg extends Msg {}

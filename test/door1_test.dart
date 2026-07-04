@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:ledger/ledger.dart';
+import 'package:regent/regent.dart';
 import 'package:test/test.dart';
 
 class _Item with Identifiable<String> {

@@ -1,7 +1,7 @@
-name: ledger
+name: regent
 description: "Optimistic, message-driven state engine: a journal of sealed messages posted into keyed registries and paginated connections. Pure Dart."
 version: 0.0.1
-repository: https://github.com/CardosoShlomo/ledger
+repository: https://github.com/CardosoShlomo/regent
 
 environment:
   sdk: ^3.12.0

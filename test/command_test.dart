@@ -1,4 +1,4 @@
-import 'package:ledger/ledger.dart';
+import 'package:regent/regent.dart';
 import 'package:test/test.dart';
 
 class _Count with Identifiable<String> {
