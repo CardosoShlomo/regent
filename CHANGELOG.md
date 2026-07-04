@@ -1,3 +1,7 @@
+## 0.1.1
+
+- README refreshed for the regent identity.
+
 ## 0.1.0
 
 - Initial release: message bus with a journal/admitted split, typed guards and vetoes.
