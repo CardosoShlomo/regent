@@ -176,10 +176,10 @@ final class AwaitsUnit<R extends Msg> {
 /// whose identity is the session (the wire sends their facts KEYLESS: a
 /// viewer profile, a requests+unseen state). Same purity contract.
 abstract class ValueStore<S, M extends Msg> implements AnyStore {
-  const ValueStore();
+  const ValueStore(this.initial);
 
   /// The value before any fact has arrived.
-  S get initial;
+  final S initial;
 
   /// Fold a message into the value and return the NEXT value. PURE.
   S reduce(S state, M msg);

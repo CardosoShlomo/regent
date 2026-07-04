@@ -57,13 +57,10 @@ class _Feed extends _FeedMsg {
 }
 
 final class _FeedUnit extends ValueStore<List<String>, _FeedMsg> {
-  const _FeedUnit();
+  const _FeedUnit() : super(const []);
 
   @override
   AwaitsUnit<Msg>? get awaits => const AwaitsUnit<_Refresh>();
-
-  @override
-  List<String> get initial => const [];
 
   @override
   List<String> reduce(List<String> state, _FeedMsg msg) =>
