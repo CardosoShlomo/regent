@@ -25,7 +25,7 @@ class _Entry with Identifiable<String> {
   final List<String> items;
 }
 
-final class _PagesAwaits extends Awaits<String, _PageRequest> {
+final class _PagesAwaits extends Awaits<String, _Entry, _PageRequest> {
   const _PagesAwaits();
 
   @override
@@ -37,7 +37,7 @@ final class _Pages extends Store<String, _Entry, _PageMsg> {
   const _Pages();
 
   @override
-  Awaits<String, Msg>? get awaits => const _PagesAwaits();
+  Awaits<String, _Entry, Msg>? get awaits => const _PagesAwaits();
 
   @override
   IdentifiableMap<String, _Entry> reduce(

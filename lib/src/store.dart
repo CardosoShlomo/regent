@@ -201,28 +201,32 @@ abstract class Store<K, E extends Identifiable<K>, M extends Msg>
 
   /// The store's correlation twin: relates it to the REQUEST family whose
   /// facts put keys in flight (key-correlated status — the key IS the
-  /// correlation). Null when the store has no requests.
-  Awaits<K, Msg>? get awaits => null;
-
-  /// Door 2 — the SCOPE-ENTRY ask: called when a screen keyed by this
-  /// entity's id node is actually navigated to (never on a render). Return
-  /// the request fact to dispatch, or null when [row]'s knowledge suffices.
-  /// The fact's family should be the [awaits] twin's, so dispatching it
-  /// marks the key in flight by construction; the generated trigger skips
-  /// keys already in flight. [row]/[flags] are the RAW store state — merge
-  /// edges never mask fetch-need. PURE: judge, don't act.
-  Msg? surface(K key, E? row, Flags? flags) => null;
+  /// correlation), and carries the scope-entry ask ([Awaits.surface]).
+  /// Null when the store has no requests — and therefore no ask: an
+  /// uncorrelated ask would re-fire on every navigation.
+  Awaits<K, E, Msg>? get awaits => null;
 }
 
 /// The correlation twin of a [Store]: names the request family [R] (kept OUT
-/// of the store's reduce family, so reduces never carry dead request arms)
-/// and extracts the key a request puts in flight. Holds no state — the
-/// status lives in the data store's sidecar; this spec only feeds it.
-abstract class Awaits<K, R extends Msg> {
+/// of the store's reduce family, so reduces never carry dead request arms),
+/// extracts the key a request puts in flight, and judges the SCOPE-ENTRY ask
+/// ([surface]). Holds no state — the status lives in the data store's
+/// sidecar; this spec only feeds it.
+abstract class Awaits<K, E, R extends Msg> {
   const Awaits();
 
   /// The key [request] puts in flight — exhaustive over the sealed family.
   K keyOf(R request);
+
+  /// Door 2 — the scope-entry ask: called when a screen keyed by the
+  /// entity's id node is actually navigated to (never on a render). Return
+  /// the request fact to dispatch, or null when [row]'s knowledge suffices.
+  /// The return type IS the request family — a foreign fact is unwritable,
+  /// so dispatching the answer marks the key in flight by construction; the
+  /// generated trigger skips keys already in flight. [row]/[flags] are the
+  /// RAW store state — merge edges never mask fetch-need. PURE: judge,
+  /// don't act.
+  R? surface(K key, E? row, Flags? flags) => null;
 
   /// Engine-facing: the in-flight key stream. [R] is reified here, where the
   /// twin knows its own family — the data store never names it.
