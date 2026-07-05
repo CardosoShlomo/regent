@@ -1,3 +1,10 @@
+## 0.2.0
+
+- `Verdict`: the write correlation twin — prediction + resolver types, settled by state comparison.
+- Optimistic overlays and `rollback` on unit stores.
+- `Stability.reverted` / `.amended` and the `tampered` flag.
+- `awaits`/`verdict` declared as `super` constructor fields; `Store.initial` is named.
+
 ## 0.1.1
 
 - README refreshed for the regent identity.
