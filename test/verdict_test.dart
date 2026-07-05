@@ -43,9 +43,8 @@ final class _RadiusVerdict extends Verdict<_SetRadius, _Profile> {
 }
 
 final class _Viewer extends Unit<_State, _ProfileMsg> {
-  const _Viewer() : super(const _State(500, 'a'));
-  @override
-  Verdict<_ProfileMsg, Msg> get verdict => const _RadiusVerdict();
+  const _Viewer()
+      : super(const _State(500, 'a'), verdict: const _RadiusVerdict());
   @override
   _State reduce(_State s, _ProfileMsg m) => switch (m) {
         _SetRadius(:final m) => _State(m, s.name),

@@ -34,10 +34,7 @@ final class _PagesAwaits extends Awaits<String, _Entry, _PageRequest> {
 }
 
 final class _Pages extends Store<String, _Entry, _PageMsg> {
-  const _Pages();
-
-  @override
-  Awaits<String, _Entry, Msg>? get awaits => const _PagesAwaits();
+  const _Pages() : super(awaits: const _PagesAwaits());
 
   @override
   IdentifiableMap<String, _Entry> reduce(
@@ -57,10 +54,7 @@ class _Feed extends _FeedMsg {
 }
 
 final class _FeedUnit extends Unit<List<String>, _FeedMsg> {
-  const _FeedUnit() : super(const []);
-
-  @override
-  AwaitsUnit<Msg>? get awaits => const AwaitsUnit<_Refresh>();
+  const _FeedUnit() : super(const [], awaits: const AwaitsUnit<_Refresh>());
 
   @override
   List<String> reduce(List<String> state, _FeedMsg msg) =>

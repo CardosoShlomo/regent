@@ -220,10 +220,17 @@ class Bus {
 @immutable
 abstract class Store<K, E extends Identifiable<K>, M extends Msg>
     implements AnyStore {
-  const Store([this.initial = const {}]);
+  const Store({this.initial = const {}, this.awaits});
 
   /// The collection before any fact has arrived — empty unless seeded.
   final IdentifiableMap<K, E> initial;
+
+  /// The store's correlation twin: relates it to the REQUEST family whose
+  /// facts put keys in flight (key-correlated status — the key IS the
+  /// correlation), and carries the scope-entry ask ([Awaits.surface]).
+  /// Null when the store has no requests — and therefore no ask: an
+  /// uncorrelated ask would re-fire on every navigation.
+  final Awaits<K, E, Msg>? awaits;
 
   /// Fold a message into the registry's keyed collection and return the NEXT
   /// collection. PURE — replayed on optimistic confirm/rollback, so no side
@@ -232,13 +239,6 @@ abstract class Store<K, E extends Identifiable<K>, M extends Msg>
   /// `entities.upsert(x)` · `entities.upsertAll(xs)` · `entities.removeById(id)`
   /// · `entities.updateById(id, (cur) => …)`.
   IdentifiableMap<K, E> reduce(IdentifiableMap<K, E> entities, M msg);
-
-  /// The store's correlation twin: relates it to the REQUEST family whose
-  /// facts put keys in flight (key-correlated status — the key IS the
-  /// correlation), and carries the scope-entry ask ([Awaits.surface]).
-  /// Null when the store has no requests — and therefore no ask: an
-  /// uncorrelated ask would re-fire on every navigation.
-  Awaits<K, E, Msg>? get awaits => null;
 }
 
 /// The correlation twin of a [Store]: names the request family [R] (kept OUT
@@ -283,22 +283,22 @@ final class AwaitsUnit<R extends Msg> {
 /// viewer profile, a requests+unseen state). Same purity contract.
 @immutable
 abstract class Unit<S, M extends Msg> implements AnyStore {
-  const Unit(this.initial);
+  const Unit(this.initial, {this.awaits, this.verdict});
 
   /// The value before any fact has arrived.
   final S initial;
 
-  /// Fold a message into the value and return the NEXT value. PURE.
-  S reduce(S state, M msg);
-
   /// The unit's correlation twin — its request family's facts put the unit
   /// in flight; any reduce-family fact clears it.
-  AwaitsUnit<Msg>? get awaits => null;
+  final AwaitsUnit<Msg>? awaits;
 
   /// The unit's WRITE twin — a family fact of the verdict's prediction type
   /// becomes a pending prediction instead of folding base; resolver-family
   /// facts settle it by state comparison. See [Verdict].
-  Verdict<M, Msg>? get verdict => null;
+  final Verdict<M, Msg>? verdict;
+
+  /// Fold a message into the value and return the NEXT value. PURE.
+  S reduce(S state, M msg);
 }
 
 /// The live memory for a [Unit]: the value driven off a [Bus].
