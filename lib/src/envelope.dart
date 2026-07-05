@@ -20,7 +20,11 @@ enum CommonSource implements Source { remote, optimistic, local, replay, cached 
 /// `reverted` = the last word here was a FAILED optimism: the value is the
 /// confirmed base again after a rollback snapped an overlay away, and no newer
 /// fact has spoken. The next fold that touches the datum overwrites it.
-enum Stability { missing, loading, pending, confirmed, stale, failed, reverted }
+/// `amended` = the server settled an approved write to a THIRD value —
+/// neither the prediction nor the old world (a clamp, a sanitization).
+enum Stability {
+  missing, loading, pending, confirmed, stale, failed, reverted, amended
+}
 
 /// A message wrapped with its transit metadata. `dispatch` produces one; guards
 /// transform it; a store reads `source` into its flags sidecar. [optimistic] is
@@ -51,16 +55,28 @@ class Envelope {
 /// flip (a freshness/confirm change that leaves the value untouched).
 @immutable
 class Flags {
-  const Flags({required this.source, required this.stability});
+  const Flags(
+      {required this.source, required this.stability, this.tampered = false});
   final Source source;
   final Stability stability;
 
-  Flags copyWith({Source? source, Stability? stability}) =>
-      Flags(source: source ?? this.source, stability: stability ?? this.stability);
+  /// While a prediction is PENDING: some fact touched the predicted values
+  /// with a state that neither confirms nor reverts it — contested until the
+  /// settling fact or the deadline decides.
+  final bool tampered;
+
+  Flags copyWith({Source? source, Stability? stability, bool? tampered}) =>
+      Flags(
+          source: source ?? this.source,
+          stability: stability ?? this.stability,
+          tampered: tampered ?? this.tampered);
 
   @override
   bool operator ==(Object other) =>
-      other is Flags && other.source == source && other.stability == stability;
+      other is Flags &&
+      other.source == source &&
+      other.stability == stability &&
+      other.tampered == tampered;
   @override
-  int get hashCode => Object.hash(source, stability);
+  int get hashCode => Object.hash(source, stability, tampered);
 }

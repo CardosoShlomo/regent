@@ -82,6 +82,35 @@ abstract base class Projection<S extends Identifiable<K>, K, E> {
   E resolve(E? row, S source);
 }
 
+/// The WRITE correlation twin — [Awaits]' sibling. Declared on a spec as two
+/// types: [P], the prediction ("hold the diff"), and [R], the resolver
+/// family ("go on with the checks"). No ids shared with the server:
+///
+/// - A dispatched [P] never folds base — it becomes the pending PREDICTION
+///   (instant overlay). A₀ = base at prediction time; P₀ = reduce(A₀, P) —
+///   the promise.
+/// - Non-[R] family facts fold base silently; they say nothing.
+/// - An [R] fact folds base to B and runs the checks: B == P₀ → CONFIRMED
+///   (drop overlay); B == A₀ → REVERTED; neither → `tampered` (contested —
+///   keep waiting for a later [R] or the deadline).
+/// - At [deadline]: base == P₀ → confirmed, == A₀ → reverted, else AMENDED
+///   (the server took the write and landed elsewhere — a clamp).
+///
+/// A newer [P] while one is pending SUPERSEDES it (settings semantics: last
+/// write wins). Requires value equality on the state (`==`).
+abstract class Verdict<P extends Msg, R extends Msg> {
+  const Verdict();
+
+  /// How long a prediction may wait unsettled before the deadline labels it.
+  Duration get deadline => const Duration(seconds: 10);
+
+  /// Whether [m] is this verdict's prediction. Internal.
+  bool predicts(Msg m) => m is P;
+
+  /// Whether [m] resolves predictions (runs the checks). Internal.
+  bool resolves(Msg m) => m is R;
+}
+
 /// The unit form of [StoreEvent].
 @immutable
 final class UnitEvent<S, M extends Msg> {
@@ -265,6 +294,11 @@ abstract class Unit<S, M extends Msg> implements AnyStore {
   /// The unit's correlation twin — its request family's facts put the unit
   /// in flight; any reduce-family fact clears it.
   AwaitsUnit<Msg>? get awaits => null;
+
+  /// The unit's WRITE twin — a family fact of the verdict's prediction type
+  /// becomes a pending prediction instead of folding base; resolver-family
+  /// facts settle it by state comparison. See [Verdict].
+  Verdict<M, Msg>? get verdict => null;
 }
 
 /// The live memory for a [Unit]: the value driven off a [Bus].
@@ -286,35 +320,100 @@ class UnitMemory<S, M extends Msg> {
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays
   bool _loading = false;
   bool _reverted = false;
+  bool _amended = false;
+  bool _tampered = false;
+  ({M msg, S base})? _prediction; // the Verdict's single pending
+  Timer? _deadline;
 
   void _refresh() {
     var v = _base;
     for (final p in _pending) {
       v = _spec.reduce(v, p.msg);
     }
+    if (_prediction case final pr?) {
+      v = _spec.reduce(v, pr.msg);
+    }
     _eff = v;
   }
 
   void _apply(M msg, Envelope env) {
     // any reduce-family fact resolves an outstanding request — and speaks
-    // over a reverted flag.
-    final cleared = _loading || _reverted;
+    // over the settled-optimism flags.
+    final cleared = _loading || _reverted || _amended;
     _loading = false;
     _reverted = false;
+    _amended = false;
     final before = _eff;
-    // optimistic + correlationId → a pending overlay; base is NOT touched.
-    if (env.optimistic && env.correlationId != null) {
+    final verdict = _spec.verdict;
+    if (verdict != null && verdict.predicts(msg) && !env.optimistic) {
+      // a PREDICTION: never folds base; a newer one supersedes the pending.
+      _deadline?.cancel();
+      _tampered = false;
+      _prediction = (msg: msg, base: _base);
+      _deadline = Timer(verdict.deadline, _settleAtDeadline);
+    } else if (env.optimistic && env.correlationId != null) {
+      // manual optimistic overlay (ledger.command); base is NOT touched.
       _pending.add(_Pending(env.correlationId!, msg));
     } else {
       // a confirmed message carrying a pending correlation id CONFIRMS it:
       // drop the overlay; the real effect below replaces it in base.
       final cid = env.correlationId;
       if (cid != null) _pending.removeWhere((p) => p.correlationId == cid);
-      _base = _spec.reduce(_base, msg);
+      final prior = _base;
+      _base = _spec.reduce(prior, msg);
+      // only the RESOLVER family runs the checks; other facts say nothing.
+      if (verdict != null && verdict.resolves(msg)) {
+        _settleOnResolver(prior);
+      }
     }
     _refresh();
     if (!identical(_eff, before) || cleared) _changes.add(null);
     _events.add(UnitEvent(msg: msg, before: before, after: _eff));
+  }
+
+  /// Settle against a RESOLVER's fold (see [Verdict]), comparing LIVE so
+  /// unrelated drift can't stale the promise: re-applying the prediction to
+  /// the new base is a no-op → the base contains the promise → CONFIRMED.
+  /// The resolver moved nothing while the prediction is still outstanding →
+  /// it echoed the old world → REVERTED. Anything else is contested →
+  /// `tampered`, keep waiting.
+  void _settleOnResolver(S prior) {
+    final pr = _prediction;
+    if (pr == null) return;
+    if (_spec.reduce(_base, pr.msg) == _base) {
+      _clearPrediction();
+    } else if (_base == prior) {
+      _clearPrediction();
+      _reverted = true;
+    } else {
+      _tampered = true;
+    }
+  }
+
+  void _clearPrediction() {
+    _deadline?.cancel();
+    _deadline = null;
+    _prediction = null;
+    _tampered = false;
+  }
+
+  /// The deadline's verdict: promise contained → confirmed; base still the
+  /// prediction-time world → reverted (silent server); else → AMENDED.
+  void _settleAtDeadline() {
+    final pr = _prediction;
+    if (pr == null) return;
+    final before = _eff;
+    if (_spec.reduce(_base, pr.msg) == _base) {
+      _clearPrediction();
+    } else if (_base == pr.base) {
+      _clearPrediction();
+      _reverted = true;
+    } else {
+      _clearPrediction();
+      _amended = true;
+    }
+    _refresh();
+    if (!identical(_eff, before) || _reverted || _amended) _changes.add(null);
   }
 
   /// Discard the optimistic overlay(s) for [correlationId] — the prediction
@@ -349,6 +448,15 @@ class UnitMemory<S, M extends Msg> {
   /// failed optimism however you want.
   bool get reverted => _reverted;
 
+  /// True after the deadline settled an [Verdict] prediction to a THIRD
+  /// value (neither promise nor old world) — the unit-tier
+  /// [Stability.amended]. Sticky until the next family fact.
+  bool get amended => _amended;
+
+  /// True while an [Verdict] prediction is pending AND some fact touched
+  /// the predicted values without confirming or reverting — contested.
+  bool get tampered => _tampered;
+
   /// Fires on every value change.
   Stream<void> get changes => _changes.stream;
 
@@ -358,6 +466,7 @@ class UnitMemory<S, M extends Msg> {
   Stream<UnitEvent<S, M>> get events => _events.stream;
 
   void dispose() {
+    _deadline?.cancel();
     _sub.cancel();
     _awaitsSub?.cancel();
     _changes.close();
