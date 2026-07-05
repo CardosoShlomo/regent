@@ -294,8 +294,10 @@ abstract class Unit<S, M extends Msg> implements AnyStore {
 
   /// The unit's WRITE twin — a family fact of the verdict's prediction type
   /// becomes a pending prediction instead of folding base; resolver-family
-  /// facts settle it by state comparison. See [Verdict].
-  final Verdict<M, Msg>? verdict;
+  /// facts settle it by state comparison. See [Verdict]. Both types are
+  /// bound to the unit's OWN family: a resolver outside the reduce family
+  /// could never reach the fold, so it is unrepresentable.
+  final Verdict<M, M>? verdict;
 
   /// Fold a message into the value and return the NEXT value. PURE.
   S reduce(S state, M msg);
