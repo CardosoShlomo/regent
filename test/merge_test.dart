@@ -117,4 +117,93 @@ void main() {
     expect(announced.last, 'me2'); // the released claim re-announces
     expect(users['me2'], isNull);
   });
+
+  group('store-source merge (the local shadow)', () {
+    test('the local store answers where the live one is silent', () {
+      final bus = Bus();
+      final locals = StoreMemory(const _LocalUsers(), bus);
+      final users = StoreMemory(const _Users(), bus)
+        ..mergeStore(locals, const _LocalSupportsUser());
+      bus.dispatch(_Saved('u1', 'ana-from-disk'));
+
+      expect(users['u1']?.name, 'ana-from-disk'); // no loading screen
+      expect(users.entities.containsKey('u1'), isFalse); // collection honest
+    });
+
+    test('main wins the moment it speaks', () {
+      final bus = Bus();
+      final locals = StoreMemory(const _LocalUsers(), bus);
+      final users = StoreMemory(const _Users(), bus)
+        ..mergeStore(locals, const _LocalSupportsUser());
+      bus.dispatch(_Saved('u1', 'ana-from-disk'));
+      bus.dispatch(_Loaded('u1', 'ana-live'));
+
+      expect(users['u1']?.name, 'ana-live');
+    });
+
+    test('a source key change announces exactly that key', () {
+      final bus = Bus();
+      final locals = StoreMemory(const _LocalUsers(), bus);
+      final users = StoreMemory(const _Users(), bus)
+        ..mergeStore(locals, const _LocalSupportsUser());
+      final announced = <String>[];
+      users.changes.listen(announced.add);
+      bus.dispatch(_Saved('u7', 'ben'));
+
+      expect(announced, contains('u7'));
+      expect(announced, isNot(contains('u1')));
+    });
+
+    test('the local store maintains itself: a gone-fact deletes the row', () {
+      final bus = Bus();
+      final locals = StoreMemory(const _LocalUsers(), bus);
+      final users = StoreMemory(const _Users(), bus)
+        ..mergeStore(locals, const _LocalSupportsUser());
+      bus.dispatch(_Saved('u1', 'ana-from-disk'));
+      bus.dispatch(_Gone('u1'));
+
+      expect(users['u1'], isNull); // shadow released
+    });
+  });
+}
+
+// ── The local shadow: a STORE of its own truth ────────────────────────────
+
+sealed class _LocalUserMsg extends Msg {}
+
+class _Saved extends _LocalUserMsg {
+  _Saved(this.id, this.name);
+  final String id;
+  final String name;
+}
+
+class _Gone extends _LocalUserMsg {
+  _Gone(this.id);
+  final String id;
+}
+
+class _LocalUser with Identifiable<String> {
+  const _LocalUser(this.id, this.name);
+  @override
+  final String id;
+  final String name;
+}
+
+final class _LocalUsers extends Store<String, _LocalUser, _LocalUserMsg> {
+  const _LocalUsers();
+
+  @override
+  IdentifiableMap<String, _LocalUser> reduce(
+          IdentifiableMap<String, _LocalUser> entities, _LocalUserMsg msg) =>
+      switch (msg) {
+        _Saved(:final id, :final name) => entities.upsert(_LocalUser(id, name)),
+        _Gone(:final id) => entities.removeById(id),
+      };
+}
+
+final class _LocalSupportsUser extends Projection<_LocalUser, String, _User> {
+  const _LocalSupportsUser();
+  @override
+  _User resolve(_User? row, _LocalUser local) =>
+      row ?? _User(local.id, local.name);
 }

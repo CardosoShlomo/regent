@@ -475,8 +475,8 @@ class UnitMemory<S, M extends Msg> {
 /// One wired merge edge, type-erased for heterogeneous sources: [claim]
 /// answers (claimed key, source state) or null while the source is absent.
 class _MergeEdge<K, E> {
-  _MergeEdge(this.claim, this.resolve);
-  final (K, Object)? Function() claim;
+  _MergeEdge(this.claimAt, this.resolve);
+  final Object? Function(K key) claimAt;
   final E Function(E? row, Object source) resolve;
 }
 
@@ -633,32 +633,46 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// order (later edges see earlier answers).
   void merge<S extends Identifiable<K>>(
       UnitMemory<S?, Msg> source, Projection<S, K, E> projection) {
-    final edge = _MergeEdge<K, E>(
-      () {
+    _merges.add(_MergeEdge<K, E>(
+      (k) {
         final s = source.value;
-        return s == null ? null : (s.id, s);
+        return s != null && s.id == k ? s : null;
       },
       (row, s) => projection.resolve(row, s as S),
-    );
-    _merges.add(edge);
+    ));
     // Surgical reactivity: a source change moves exactly the claimed keys —
     // the previous claim (released) and the current one (answered anew).
-    var last = edge.claim()?.$1;
+    var last = source.value?.id;
     _mergeSubs.add(source.changes.listen((_) {
       final prev = last;
-      final now = edge.claim()?.$1;
+      final now = source.value?.id;
       last = now;
       if (prev != null && prev != now) _changes.add(prev);
       if (now != null) _changes.add(now);
     }));
   }
 
+  /// Like [merge], with a whole KEYED STORE as the source: the source
+  /// answers this store's per-key reads at every key it holds — the
+  /// local/offline store shadowing the live one. The source's own merges
+  /// apply (chains compose); the projection decides precedence per key
+  /// (main-wins = `row ?? local`).
+  void mergeStore<S extends Identifiable<K>>(
+      StoreMemory<K, S, Msg> source, Projection<S, K, E> projection) {
+    _merges.add(_MergeEdge<K, E>(
+      (k) => source[k],
+      (row, s) => projection.resolve(row, s as S),
+    ));
+    // A source key moved → exactly that key's read may resolve differently.
+    _mergeSubs.add(source.changes.listen(_changes.add));
+  }
+
   E? _resolved(K key, E? row) {
     var value = row;
     for (final m in _merges) {
-      final c = m.claim();
-      if (c == null || c.$1 != key) continue;
-      value = m.resolve(value, c.$2);
+      final s = m.claimAt(key);
+      if (s == null) continue;
+      value = m.resolve(value, s);
     }
     return value;
   }
