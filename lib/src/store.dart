@@ -6,21 +6,48 @@ import 'package:meta/meta.dart';
 import 'envelope.dart';
 import 'msg.dart';
 
-/// Marks the spec enum canon's generator reads: each row holds a [Store] — the
-/// two things no grammar derives: THAT this collection exists, and its reduce.
-/// Everything else (key node, key type, tree machinery, screen associations)
-/// derives from the `@entities` graph via the store's entity type `E`.
-class Stores {
-  const Stores();
+/// Marks the CITIZENS enum canon's generator reads: each row holds a
+/// [Regent] — a store, a unit, a guard, or a veto — and ROW ORDER IS
+/// TRAVERSAL ORDER. The rows share one order but act OPPOSITELY: store rows
+/// are readers (they fold what passes, never touching it — what they see is
+/// what survived the guards above them); guard rows are judges (stateless,
+/// fold nothing, decide what every row below sees: pass, drop, rewrite).
+/// Merge edges live in the enum's static `merges` set
+/// (`users.from(viewer, const ViewerSupportsUser())`) and may connect STORE
+/// rows only. Everything else (key node, key type, tree machinery, screen
+/// associations) derives from the `@entities` graph via each store's entity
+/// type `E`.
+class Regents {
+  const Regents();
 }
 
 /// The arg-less default.
-const stores = Stores();
+const regents = Regents();
 
-/// The contract the `@stores` enum wears: a row is a held [Store] instance,
-/// nothing more (`ads(Ads())`).
-mixin StoreNode<Self extends StoreNode<Self>> on Enum {
-  AnyStore get store;
+/// The contract the `@regents` enum wears: a row is a held [Regent]
+/// instance, nothing more (`ads(Ads())`, `cachedChatsGate(CachedChatsGate())`).
+mixin RegentNode<Self extends RegentNode<Self>> on Enum {
+  Regent get regent;
+
+  /// A MERGE EDGE for the enum's static `merges` set: this row's store
+  /// reads-from [source]'s rows through [projection]
+  /// (`users.from(viewer, const ViewerSupportsUser())`). Chainable —
+  /// resolution in declaration order. STORE rows only, both ends (the
+  /// generator enforces it).
+  RegentMerge<Self> from(Self source, Object projection) =>
+      RegentMerge<Self>(this as Self, [(source, projection)]);
+}
+
+/// A target row's collected merge edges — what [RegentNode.from] builds.
+class RegentMerge<Self extends RegentNode<Self>> {
+  const RegentMerge(this.target, this.edges);
+
+  final Self target;
+  final List<(Self, Object)> edges;
+
+  /// Chain another source into the same target.
+  RegentMerge<Self> from(Self source, Object projection) =>
+      RegentMerge<Self>(target, [...edges, (source, projection)]);
 }
 
 /// What a `@stores` row may hold: a keyed [Store] or a [Unit].
@@ -28,9 +55,19 @@ abstract interface class AnyStore {}
 
 /// A CITIZEN of the ledger — anything that occupies a row of the regents
 /// enum: stores, units, guards, vetoes. Row order is traversal order: a
-/// message walks the rows top to bottom, folding into stores and submitting
-/// to guards as it passes; a guard that drops it stops the walk for every
-/// row below.
+/// message walks the rows top to bottom.
+///
+/// One order, two OPPOSITE relationships to the flow:
+///
+///  * A STORE row is a pure READER standing at its place in the queue — it
+///    folds what passes and can never touch the message. What it sees is
+///    whatever survived the guards ABOVE its row.
+///  * A GUARD row is a pure JUDGE of the flow itself — it folds nothing and
+///    holds no state, but decides what the rows BELOW it see: pass, drop,
+///    or rewrite.
+///
+/// So placement means different things: moving a store changes what IT
+/// sees; moving a guard changes what EVERYONE below it sees.
 @immutable
 abstract base class Regent {
   const Regent();
