@@ -1,6 +1,41 @@
 import 'package:test/test.dart';
 import 'package:regent/regent.dart';
 
+sealed class _DocMsg extends Msg {}
+
+class _Put extends _DocMsg {
+  _Put(this.id, this.text);
+  final String id;
+  final String text;
+}
+
+class _Drop extends _DocMsg {
+  _Drop(this.id);
+  final String id;
+}
+
+class _Noop extends _DocMsg {}
+
+class _Doc with Identifiable<String> {
+  const _Doc(this.id, this.text);
+  @override
+  final String id;
+  final String text;
+}
+
+final class _Docs extends Store<String, _Doc, _DocMsg> {
+  const _Docs();
+
+  @override
+  IdentifiableMap<String, _Doc> reduce(
+          IdentifiableMap<String, _Doc> entities, _DocMsg msg) =>
+      switch (msg) {
+        _Put(:final id, :final text) => entities.upsert(_Doc(id, text)),
+        _Drop(:final id) => entities.removeById(id),
+        _Noop() => entities,
+      };
+}
+
 enum _Phase { idle, compressing, uploading, done }
 
 sealed class _FlowMsg extends Msg {
@@ -84,5 +119,39 @@ void main() {
     bus.dispatch(const _Noted('kept'));
     await Future<void>.delayed(Duration.zero);
     expect(notes, ['kept']);
+  });
+
+  test('rowChanges() classifies inserts, updates, deletes', () async {
+    final bus = Bus();
+    final docs = StoreMemory(const _Docs(), bus);
+    final seen = <String>[];
+    docs.events.rowChanges().listen((c) => seen.add(switch (c) {
+          Inserted(:final entity) => 'ins:${c.id}=${entity.text}',
+          Updated(:final entity) => 'upd:${c.id}=${entity.text}',
+          Deleted() => 'del:${c.id}',
+        }));
+    bus.dispatch(_Put('a', 'one'));
+    bus.dispatch(_Put('a', 'two'));
+    bus.dispatch(_Noop());
+    bus.dispatch(_Drop('a'));
+    await Future<void>.delayed(Duration.zero);
+    expect(seen, ['ins:a=one', 'upd:a=two', 'del:a']);
+  });
+
+  test('row verbs slice the feed', () async {
+    final bus = Bus();
+    final docs = StoreMemory(const _Docs(), bus);
+    final ins = <String>[], ups = <String>[], del = <String>[];
+    docs.events.inserted().listen((d) => ins.add(d.id));
+    docs.events.upserted().listen((d) => ups.add('${d.id}=${d.text}'));
+    docs.events.deleted().listen(del.add);
+    bus.dispatch(_Put('a', 'one'));
+    bus.dispatch(_Put('b', 'x'));
+    bus.dispatch(_Put('a', 'two'));
+    bus.dispatch(_Drop('b'));
+    await Future<void>.delayed(Duration.zero);
+    expect(ins, ['a', 'b']);
+    expect(ups, ['a=one', 'b=x', 'a=two']);
+    expect(del, ['b']);
   });
 }

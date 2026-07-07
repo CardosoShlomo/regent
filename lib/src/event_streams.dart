@@ -25,6 +25,29 @@ extension UnitEventStream<S, M extends Msg> on Stream<UnitEvent<S, M>> {
           UnitEvent(msg: e.msg as M2, before: e.before, after: e.after));
 }
 
+/// One row's movement inside one fold — the store's change feed at row
+/// grain, derived from [StoreEvent.changed] (no map walk).
+sealed class RowChange<K, E> {
+  const RowChange(this.id);
+  final K id;
+}
+
+final class Inserted<K, E> extends RowChange<K, E> {
+  const Inserted(super.id, this.entity);
+  final E entity;
+}
+
+final class Updated<K, E> extends RowChange<K, E> {
+  const Updated(super.id, this.before, this.entity);
+  final E before;
+  final E entity;
+}
+
+final class Deleted<K, E> extends RowChange<K, E> {
+  const Deleted(super.id, this.before);
+  final E before;
+}
+
 /// The keyed-store counterpart of [UnitEventStream].
 extension StoreEventStream<K, E extends Identifiable<K>, M extends Msg>
     on Stream<StoreEvent<K, E, M>> {
@@ -42,4 +65,41 @@ extension StoreEventStream<K, E extends Identifiable<K>, M extends Msg>
           after: e.after,
           changed: e.changed,
           structural: e.structural));
+
+  /// Each fold flattened into per-row changes — the vocabulary a surgical
+  /// mirror speaks (`store.events.rowChanges().listen(db.applyRow)`).
+  Stream<RowChange<K, E>> rowChanges() => expand((e) => [
+        for (final id in e.changed)
+          switch ((e.before[id], e.after[id])) {
+            (null, final E entity) => Inserted<K, E>(id, entity),
+            (final E before, null) => Deleted<K, E>(id, before),
+            (final E before, final E entity) =>
+              Updated<K, E>(id, before, entity),
+            (null, null) => throw StateError('changed id $id in neither map'),
+          },
+      ]);
+
+  /// Rows that appeared this fold.
+  Stream<E> inserted() => expand((e) => [
+        for (final id in e.changed)
+          if (e.before[id] == null && e.after[id] != null) e.after[id]!,
+      ]);
+
+  /// Rows whose value moved this fold.
+  Stream<E> updated() => expand((e) => [
+        for (final id in e.changed)
+          if (e.before[id] != null && e.after[id] != null) e.after[id]!,
+      ]);
+
+  /// Rows that appeared or moved — the write-side of an upsert mirror.
+  Stream<E> upserted() => expand((e) => [
+        for (final id in e.changed)
+          if (e.after[id] != null) e.after[id]!,
+      ]);
+
+  /// Ids of rows that vanished this fold.
+  Stream<K> deleted() => expand((e) => [
+        for (final id in e.changed)
+          if (e.after[id] == null) id,
+      ]);
 }

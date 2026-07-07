@@ -1,3 +1,7 @@
+## 0.5.0
+
+- Row-grain store feed: `rowChanges()` + `inserted`/`updated`/`upserted`/`deleted` stream verbs.
+
 ## 0.4.0
 
 - Regent citizen base; positional Guard/Veto rows; segmented queue; keyed verdicts.
