@@ -1,5 +1,6 @@
 import 'envelope.dart';
 import 'msg.dart';
+import 'pure.dart';
 import 'store.dart';
 
 /// A PURE judge standing at its row of the queue: every traversing message
@@ -16,6 +17,7 @@ import 'store.dart';
 abstract base class Guard<M extends Msg, S> extends Regent {
   const Guard();
 
+  @pure
   Msg? judge(Envelope env, M msg, S stores);
 
   @override

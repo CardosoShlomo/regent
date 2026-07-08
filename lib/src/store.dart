@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 
 import 'envelope.dart';
 import 'msg.dart';
+import 'pure.dart';
 
 /// Marks the CITIZENS enum canon's generator reads: each row holds a
 /// [Regent] — a store, a unit, a guard, or a veto — and ROW ORDER IS
@@ -288,6 +289,7 @@ abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
   /// `identifiable` map extensions keep it terse:
   /// `entities.upsert(x)` · `entities.upsertAll(xs)` · `entities.removeById(id)`
   /// · `entities.updateById(id, (cur) => …)`.
+  @pure
   IdentifiableMap<K, E> reduce(IdentifiableMap<K, E> entities, M msg);
 
   @override
@@ -355,6 +357,7 @@ abstract base class Unit<S, M extends Msg> extends Regent
   final Verdict<M, M>? verdict;
 
   /// Fold a message into the value and return the NEXT value. PURE.
+  @pure
   S reduce(S state, M msg);
 
   @override

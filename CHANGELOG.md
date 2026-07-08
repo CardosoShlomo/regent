@@ -1,3 +1,8 @@
+## 0.7.0
+
+- `replay(rows, order)` / `replayStore`: fold a message order on a pure ledger to a state snapshot — order-(in)dependence as a law via `equals`/`isNot`.
+- `@pure` marker on the fold-family contracts (Store/Unit.reduce, Guard.judge).
+
 ## 0.6.0
 
 - `Ledger.of(rows)`: the declared ledger — closed citizen list from the regent enum; `memoryOf(row)`; positional `on<M>(before: row)` reads the feed at any declared row.
