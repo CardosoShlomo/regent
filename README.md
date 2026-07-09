@@ -61,11 +61,11 @@ Every entry carries `Flags` (`pending`, `confirmed`, `reverted`, `amended`,
   message (`msg`, `before`, `after`, changed keys): effects observe cause
   and consequence atomically, so they can never race the fold. Sugar:
   `transitions()`, `entering(state)`, `on<M>()`.
-- **Awaits** — a store's correlation twin names its REQUEST family:
-  dispatching a request marks its key in flight (status is derived, never a
-  state field), and the twin's `surface(key, row, flags)` answers scope
-  entry with the ask to dispatch — or null when the row's knowledge
-  suffices.
+- **Awaits** — a store's correlation twin names its REQUEST family and
+  answers scope entry via `surface(key, row)`: the ask to dispatch, or null
+  when the row's knowledge suffices. In-flight status is an honest ROW —
+  a consumer unit folds request facts in and answering facts out; a guard
+  reading it drops duplicate asks. No machinery, no sidecar.
 - **Merges** — read-time edges, never copied state: a unit's state answers a
   keyed surface at its own `Identifiable` id (`merge`), or a whole store
   lends its rows to another's reads through a projection (`mergeStore`) —

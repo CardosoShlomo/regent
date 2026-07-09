@@ -46,34 +46,16 @@ void main() {
     expect(store.flagsOf('a')?.stability, Stability.confirmed);
   });
 
-  test('markLoading / markFailed move stability, value untouched', () {
-    final bus = Bus();
-    final store = StoreMemory(const _Docs(), bus);
-    bus.dispatch(_Set('a', 'hi'));
-
-    store.markLoading('a');
-    expect(store.flagsOf('a')?.stability, Stability.loading);
-    expect(store['a']?.text, 'hi');
-
-    store.markFailed('a');
-    expect(store.flagsOf('a')?.stability, Stability.failed);
-  });
-
-  test('loading a missing key: flags exist, value still null', () {
-    final bus = Bus();
-    final store = StoreMemory(const _Docs(), bus);
-    store.markLoading('a'); // fetch on entry, nothing cached yet
-    expect(store['a'], isNull);
-    expect(store.flagsOf('a')?.stability, Stability.loading);
-  });
-
   test('invalidate only affects confirmed entries', () {
     final bus = Bus();
     final store = StoreMemory(const _Docs(), bus);
+    store.invalidate('a'); // absent → no-op
+    expect(store.flagsOf('a'), isNull);
     bus.dispatch(_Set('a', 'hi'));
-    store.markLoading('a'); // now loading, not confirmed
-    store.invalidate('a'); // no-op (not confirmed)
-    expect(store.flagsOf('a')?.stability, Stability.loading);
+    store.invalidate('a');
+    expect(store.flagsOf('a')?.stability, Stability.stale);
+    store.invalidate('a'); // already stale → no-op
+    expect(store.flagsOf('a')?.stability, Stability.stale);
   });
 
   test('stability transitions emit change events', () async {
@@ -82,10 +64,8 @@ void main() {
     bus.dispatch(_Set('a', 'hi'));
     final keys = <String>[];
     store.changes.listen(keys.add);
-    store.markLoading('a');
-    bus.setConnected(false); // invalidateAll → a is loading, not confirmed → no-op
-    store.markFailed('a');
+    store.invalidate('a');
     await Future<void>.delayed(Duration.zero);
-    expect(keys, ['a', 'a']); // loading, failed (disconnect was a no-op on loading)
+    expect(keys, ['a']);
   });
 }

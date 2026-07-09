@@ -1,11 +1,11 @@
-## 0.10.0
-
-- BREAKING: `Verdict` removed — write settlement is rows now: a pending side store, a settling guard, a merge edge, and a consumer deadline effect.
-- Unit-target merge edges: `UnitMemory.merge(source, UnitProjection)`.
-
 ## 0.9.0
 
 - BREAKING: `Guard.judge` returns `Set<Msg>` — the feed the rows below see: `{}` drop, `{msg}` pass, `{other}` rewrite, `{a, b, …}` fan-out branches in set order. `Veto` unchanged for consumers.
+- BREAKING: `Verdict` removed — write settlement is rows now: a pending side store, a settling guard, a merge edge, and a consumer deadline effect.
+- BREAKING: awaits' state half deleted — in-flight status is a consumer row (a unit folding request/answer facts) deduped by a guard; `Awaits` keeps only `surface(key, row)`. Gone: `keyOf`, `keys`, `AwaitsUnit`, `Unit.awaits`, `markLoading`, `markFailed`, `inFlight`, `needs`, `UnitMemory.loading`.
+- `CoveredRanges` — covered cursor intervals as a pure value (mark/retract/contains; open-ended edges; retraction opens its boundaries).
+- Unit-target merge edges: `UnitMemory.merge(source, UnitProjection)`.
+- `ledger.read` returns BASE (confirmed state) — judges never rule on unacked predictions.
 
 ## 0.8.0
 

@@ -39,7 +39,7 @@ void main() {
     final sub = store.consume('a').listen((d) => seen.add(d?.text));
     await Future<void>.delayed(Duration.zero); // initial 'hi'
 
-    store.markLoading('a'); // FLAG-only flip — value unchanged
+    store.invalidate('a'); // FLAG-only flip — value unchanged
     bus.dispatch(_Set('a', 'hi2')); // value change
     await Future<void>.delayed(Duration.zero);
     await sub.cancel();
@@ -58,16 +58,16 @@ void main() {
     final sub = store.watchStatus('a').listen((f) => seen.add(f?.stability));
     await Future<void>.delayed(Duration.zero); // initial confirmed
 
-    store.markLoading('a');
-    await Future<void>.delayed(Duration.zero); // loading is its own cut
+    store.invalidate('a');
+    await Future<void>.delayed(Duration.zero); // stale is its own cut
     bus.dispatch(_Set('a', 'hi2'));
-    await Future<void>.delayed(Duration.zero); // value change re-confirms (same flags as start) → no extra emit
-    store.markFailed('a');
+    await Future<void>.delayed(Duration.zero); // value change re-confirms
+    store.invalidate('a');
     await Future<void>.delayed(Duration.zero);
     await sub.cancel();
 
     await Future<void>.delayed(Duration.zero);
-    expect(seen, [Stability.confirmed, Stability.loading, Stability.confirmed, Stability.failed]);
+    expect(seen, [Stability.confirmed, Stability.stale, Stability.confirmed, Stability.stale]);
   });
 
   test('watch only fires for ITS key', () async {

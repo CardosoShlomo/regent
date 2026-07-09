@@ -270,11 +270,9 @@ abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
   /// The collection before any fact has arrived — empty unless seeded.
   final IdentifiableMap<K, E> initial;
 
-  /// The store's correlation twin: relates it to the REQUEST family whose
-  /// facts put keys in flight (key-correlated status — the key IS the
-  /// correlation), and carries the scope-entry ask ([Awaits.surface]).
-  /// Null when the store has no requests — and therefore no ask: an
-  /// uncorrelated ask would re-fire on every navigation.
+  /// The store's correlation twin: names the REQUEST family and carries the
+  /// scope-entry ask ([Awaits.surface]). Null when the store has no
+  /// requests — and therefore no ask.
   final Awaits<K, E, Msg>? awaits;
 
   /// Fold a message into the registry's keyed collection and return the NEXT
@@ -291,40 +289,21 @@ abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
 }
 
 /// The correlation twin of a [Store]: names the request family [R] (kept OUT
-/// of the store's reduce family, so reduces never carry dead request arms),
-/// extracts the key a request puts in flight, and judges the SCOPE-ENTRY ask
-/// ([surface]). Holds no state — the status lives in the data store's
-/// sidecar; this spec only feeds it.
+/// of the store's reduce family, so reduces never carry dead request arms)
+/// and judges the SCOPE-ENTRY ask ([surface]). Holds NO state and drives no
+/// machinery — in-flight status is an honest ledger row (a consumer unit
+/// folding request facts in and answering facts out), deduped by a guard.
 @immutable
 abstract class Awaits<K, E, R extends Msg> {
   const Awaits();
 
-  /// The key [request] puts in flight — exhaustive over the sealed family.
-  K keyOf(R request);
-
   /// Door 2 — the scope-entry ask: called when a screen keyed by the
   /// entity's id node is actually navigated to (never on a render). Return
   /// the request fact to dispatch, or null when [row]'s knowledge suffices.
-  /// The return type IS the request family — a foreign fact is unwritable,
-  /// so dispatching the answer marks the key in flight by construction; the
-  /// generated trigger skips keys already in flight. [row]/[flags] are the
-  /// RAW store state — merge edges never mask fetch-need. PURE: judge,
-  /// don't act.
-  R? surface(K key, E? row, Flags? flags) => null;
-
-  /// Engine-facing: the in-flight key stream. [R] is reified here, where the
-  /// twin knows its own family — the data store never names it.
-  Stream<K> keys(Bus bus) => bus.spine<R>().map((r) => keyOf(r.$1));
-}
-
-/// The unit form: ANY [R] fact puts the unit in flight (a unit has one key —
-/// itself), and any fact of the unit's reduce family clears it. [R] must not
-/// be part of the reduce family, or it would clear itself.
-@immutable
-final class AwaitsUnit<R extends Msg> {
-  const AwaitsUnit();
-
-  Stream<void> events(Bus bus) => bus.spine<R>().map((_) {});
+  /// The return type IS the request family — a foreign fact is unwritable.
+  /// [row] is the RAW store state — merge edges never mask fetch-need.
+  /// PURE: judge, don't act; duplicate asks are a GUARD's job.
+  R? surface(K key, E? row) => null;
 }
 
 /// The UNIT sibling of [Store]: one value, cardinality one — for entities
@@ -333,14 +312,10 @@ final class AwaitsUnit<R extends Msg> {
 @immutable
 abstract base class Unit<S, M extends Msg> extends Regent
     implements AnyStore<S> {
-  const Unit(this.initial, {this.awaits});
+  const Unit(this.initial);
 
   /// The value before any fact has arrived.
   final S initial;
-
-  /// The unit's correlation twin — its request family's facts put the unit
-  /// in flight; any reduce-family fact clears it.
-  final AwaitsUnit<Msg>? awaits;
 
   /// Fold a message into the value and return the NEXT value. PURE.
   @pure
@@ -356,11 +331,6 @@ class UnitMemory<S, M extends Msg> {
       : _base = _spec.initial,
         _eff = _spec.initial {
     _sub = bus.spine<M>().listen((r) => _apply(r.$1, r.$2));
-    _awaitsSub = _spec.awaits?.events(bus).listen((_) {
-      if (_loading) return;
-      _loading = true;
-      _changes.add(null);
-    });
   }
 
   final Unit<S, M> _spec;
@@ -371,7 +341,6 @@ class UnitMemory<S, M extends Msg> {
   /// returns.
   S get base => _base;
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays
-  bool _loading = false;
   bool _reverted = false;
 
   void _refresh() {
@@ -383,10 +352,8 @@ class UnitMemory<S, M extends Msg> {
   }
 
   void _apply(M msg, Envelope env) {
-    // any reduce-family fact resolves an outstanding request — and speaks
-    // over the settled-optimism flag.
-    final cleared = _loading || _reverted;
-    _loading = false;
+    // any reduce-family fact speaks over the settled-optimism flag.
+    final cleared = _reverted;
     _reverted = false;
     final before = _eff;
     if (env.optimistic && env.correlationId != null) {
@@ -421,7 +388,6 @@ class UnitMemory<S, M extends Msg> {
   final StreamController<UnitEvent<S, M>> _events =
       StreamController<UnitEvent<S, M>>.broadcast();
   late final StreamSubscription<Object?> _sub;
-  late final StreamSubscription<void>? _awaitsSub;
 
   // ── Merge edges (read resolvers), unit form ───────────────────────────
   final List<S Function(S)> _merges = [];
@@ -446,10 +412,6 @@ class UnitMemory<S, M extends Msg> {
     return v;
   }
 
-  /// True while a request fact awaits its answer (any non-request family
-  /// fact clears it).
-  bool get loading => _loading;
-
   /// True after a rollback snapped the value back to base, until the next
   /// family fact speaks — the unit-tier [Stability.reverted]: render the
   /// failed optimism however you want.
@@ -465,7 +427,6 @@ class UnitMemory<S, M extends Msg> {
 
   void dispose() {
     _sub.cancel();
-    _awaitsSub?.cancel();
     for (final s in _mergeSubs) {
       s.cancel();
     }
@@ -505,9 +466,6 @@ class _Pending<M> {
 class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   StoreMemory(this._reg, Bus bus) {
     _sub = bus.spine<M>().listen((r) => _apply(r.$1, r.$2));
-    // the correlation twin: request facts mark their key loading; the next
-    // fold that touches the key confirms it (see _apply).
-    _awaitsSub = _reg.awaits?.keys(bus).listen(markLoading);
     // a disconnect loses the push freshness guarantee → confirmed entries stale.
     _connSub = bus.connection.listen((up) {
       if (!up) invalidateAll();
@@ -742,26 +700,6 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     _changes.add(key);
   }
 
-  /// A fetch is in flight for [key] — the screen-entry trigger calls this when
-  /// it fires a load. The value (if any) stays; stability becomes `loading`.
-  void markLoading(K key) => _setStability(key, Stability.loading);
-
-  /// True while a request fact for [key] awaits its answer.
-  bool inFlight(K key) => flagsOf(key)?.stability == Stability.loading;
-
-  /// A fetch for [key] errored.
-  void markFailed(K key) => _setStability(key, Stability.failed);
-
-  /// Door 2 metadata predicate: does [key] need loading? True when it is missing,
-  /// stale, or failed; false when `confirmed`/`loading`/`pending` (present or
-  /// in-flight). A convenience for [Store.surface] overrides — the generated
-  /// nav trigger consults `surface(key, row, flags)`, and dispatching its
-  /// answer marks the key loading via the [Awaits] twin.
-  bool needs(K key) => switch (flagsOf(key)?.stability) {
-        Stability.confirmed || Stability.loading || Stability.pending => false,
-        _ => true,
-      };
-
   /// Mark a CONFIRMED entry stale (server invalidation, a related change, or a
   /// disconnect). A no-op on an entry that isn't currently confirmed.
   void invalidate(K key) {
@@ -881,7 +819,6 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
 
   void dispose() {
     _sub.cancel();
-    _awaitsSub?.cancel();
     _connSub.cancel();
     for (final s in _mergeSubs) {
       s.cancel();

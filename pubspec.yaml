@@ -1,6 +1,6 @@
 name: regent
 description: "Optimistic, message-driven state engine: a journal of sealed facts folded into keyed stores and units, with guards, correlation, and merge edges. Pure Dart."
-version: 0.10.0
+version: 0.9.0
 repository: https://github.com/CardosoShlomo/regent
 
 environment:
