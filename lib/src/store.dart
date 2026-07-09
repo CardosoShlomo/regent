@@ -487,7 +487,6 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   final StreamController<StoreEvent<K, E, M>> _events =
       StreamController<StoreEvent<K, E, M>>.broadcast();
   late final StreamSubscription<Object?> _sub;
-  late final StreamSubscription<K>? _awaitsSub;
   late final StreamSubscription<bool> _connSub;
 
   Set<K> _diff(IdentifiableMap<K, E> a, IdentifiableMap<K, E> b) => {
