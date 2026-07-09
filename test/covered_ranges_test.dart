@@ -63,4 +63,25 @@ void main() {
     expect(c.contains(10), isFalse);
     expect(c.contains(40), isTrue);
   });
+
+  test('open-above marks a first page: nothing exists past its top', () {
+    final c = none.mark(30, null);
+    expect(c.contains(30), isTrue);
+    expect(c.contains(1000000), isTrue);
+    expect(c.contains(29), isFalse);
+  });
+
+  test('open-above merges with an overlapping bounded range', () {
+    final c = none.mark(10, 40).mark(35, null);
+    expect(c.ranges.length, 1);
+    expect(c.contains(10), isTrue);
+    expect(c.contains(9999), isTrue);
+  });
+
+  test('retract a middle span from a fully open range', () {
+    final c = none.mark(null, null).retract(20, 30);
+    expect(c.contains(10), isTrue);
+    expect(c.contains(25), isFalse);
+    expect(c.contains(40), isTrue);
+  });
 }
