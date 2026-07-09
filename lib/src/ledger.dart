@@ -84,9 +84,11 @@ class Ledger implements LedgerRows {
   // duplicate identical instance, so the lookup is total and unambiguous.
   final Map<Object, Object> _specMemories = Map.identity();
 
-  /// This ledger's own state by citizen identity — what every guard row
-  /// judges through: `read(const BrowseDeck())` is the deck's keyed
-  /// collection, `read(const AuthMachine())` the unit's value.
+  /// This ledger's own CONFIRMED state by citizen identity — what every
+  /// guard row judges through: `read(const BrowseDeck())` is the deck's
+  /// keyed collection, `read(const AuthMachine())` the unit's value. Base
+  /// truth only — no optimistic overlays, no merge edges — so a judge never
+  /// rules on a prediction that hasn't been acknowledged.
   S read<S>(AnyStore<S> spec) {
     final memory = _specMemories[spec] ??
         (throw StateError(
@@ -94,8 +96,8 @@ class Ledger implements LedgerRows {
             'by IDENTITY: match the row\'s constructor args exactly, and '
             'spell `const` (a non-const expression is a fresh instance).'));
     return switch (memory) {
-      final StoreMemory m => m.entities as S,
-      final UnitMemory m => m.value as S,
+      final StoreMemory m => m.base as S,
+      final UnitMemory m => m.base as S,
       _ => throw StateError('unreadable memory for ${spec.runtimeType}'),
     };
   }

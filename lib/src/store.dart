@@ -394,6 +394,10 @@ class UnitMemory<S, M extends Msg> {
   final Unit<S, M> _spec;
   S _base; // confirmed truth only
   S _eff; // base folded through pending overlays (cache)
+
+  /// The CONFIRMED value — no optimistic overlays. What a guard's `read`
+  /// returns.
+  S get base => _base;
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays
   bool _loading = false;
   bool _reverted = false;
@@ -592,6 +596,10 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
 
   final Store<K, E, M> _reg;
   late IdentifiableMap<K, E> _base = _reg.initial; // confirmed truth only
+
+  /// The CONFIRMED collection — no optimistic overlays, no merge edges.
+  /// What a guard's `read` returns.
+  IdentifiableMap<K, E> get base => _base;
   late IdentifiableMap<K, E> _eff = _reg.initial; // base folded through pending overlays (cache)
   final Map<K, Flags> _flags = {};
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays

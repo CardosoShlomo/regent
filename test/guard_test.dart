@@ -119,6 +119,18 @@ void main() {
     expect(prices['b']?.value, 5);
   });
 
+  test('read is CONFIRMED state — optimistic overlays are invisible to it',
+      () {
+    final ledger = Ledger();
+    final prices = ledger.store(const _Prices());
+
+    ledger.dispatch(const _PriceSet('a', 99),
+        optimistic: true, correlationId: 'c1');
+
+    expect(prices['a']?.value, 99); // the effective view projects the overlay
+    expect(ledger.read(const _Prices())['a'], isNull); // a judge never sees it
+  });
+
   test('a guard FANS OUT: each returned msg walks the rows below, in order',
       () async {
     final ledger = Ledger();
