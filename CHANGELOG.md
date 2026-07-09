@@ -1,3 +1,8 @@
+## 0.10.0
+
+- BREAKING: `Verdict` removed — write settlement is rows now: a pending side store, a settling guard, a merge edge, and a consumer deadline effect.
+- Unit-target merge edges: `UnitMemory.merge(source, UnitProjection)`.
+
 ## 0.9.0
 
 - BREAKING: `Guard.judge` returns `Set<Msg>` — the feed the rows below see: `{}` drop, `{msg}` pass, `{other}` rewrite, `{a, b, …}` fan-out branches in set order. `Veto` unchanged for consumers.

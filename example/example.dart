@@ -48,7 +48,7 @@ class Todo with Identifiable<String> {
 
   Todo completed(bool done) => Todo(id, title, done: done);
 
-  // Verdicts settle by STATE COMPARISON — value equality is the contract.
+  // Laws compare replayed states — value equality is the contract.
   @override
   bool operator ==(Object o) =>
       o is Todo && o.id == id && o.title == title && o.done == done;
@@ -56,15 +56,9 @@ class Todo with Identifiable<String> {
   int get hashCode => Object.hash(id, title, done);
 }
 
-// ── The store: a pure fold, optimism declared in one line ──
-final class ToggleVerdict extends Verdict<CompleteTodo, TodoToggled> {
-  const ToggleVerdict();
-  @override
-  Duration get deadline => const Duration(seconds: 3);
-}
-
+// ── The store: a pure fold ──
 final class Todos extends Store<String, Todo, TodoMsg> {
-  const Todos() : super(verdict: const ToggleVerdict());
+  const Todos();
 
   @override
   IdentifiableMap<String, Todo> reduce(
@@ -85,32 +79,24 @@ void main() async {
   ledger.veto<TodoAdded>((msg) => todos[msg.id] != null); // duplicates drop
   todos = ledger.store(const Todos());
 
-  // An effect: the transport lives OUTSIDE the fold, listening post-queue.
-  ledger.on<CompleteTodo>().listen((msg) async {
-    // fake server: echoes the first write, loses the second
-    if (msg.id == 'milk') {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      ledger.dispatch(TodoToggled(msg.id, done: msg.done));
-    }
-  });
-
   ledger.dispatch(const TodoAdded('milk', 'Buy milk'));
   ledger.dispatch(const TodoAdded('milk', 'Buy milk')); // vetoed — a no-op
   ledger.dispatch(const TodoAdded('tea', 'Brew tea'));
 
-  // Optimistic write: done flips NOW, `pending` until the echo settles it.
-  ledger.dispatch(const CompleteTodo('milk', done: true));
-  print('milk done=${todos['milk']!.done} '
-      '(${todos.flagsOf('milk')?.stability})'); // true (pending)
-
-  await Future<void>.delayed(const Duration(milliseconds: 200));
+  // Optimistic write via command: done flips NOW as a correlated overlay
+  // (base untouched); the effect's echo promotes it into base.
+  await ledger.command(const CompleteTodo('milk', done: true), effect: () async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    return const TodoToggled('milk', done: true); // the fake server's echo
+  });
   print('milk done=${todos['milk']!.done} '
       '(${todos.flagsOf('milk')?.stability})'); // true (confirmed)
 
-  // The server never answers this one — the deadline reverts it, no code.
-  ledger.dispatch(const CompleteTodo('tea', done: true));
-  print('tea done=${todos['tea']!.done}'); // true, hopeful
-  await Future<void>.delayed(const Duration(seconds: 4));
+  // A failing transport rolls the overlay back — base never lied.
+  try {
+    await ledger.command(const CompleteTodo('tea', done: true),
+        effect: () async => throw StateError('offline'));
+  } catch (_) {}
   print('tea done=${todos['tea']!.done} '
       '(${todos.flagsOf('tea')?.stability})'); // false (reverted)
 

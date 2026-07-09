@@ -42,18 +42,15 @@ a generated read-only `Stores` facade, and merge edges in the enum's static
 
 An optimistic dispatch lands as a pending OVERLAY — base state is never
 touched, so a rollback can't clobber a confirmed or superseding write.
-Settle it three ways:
+Settle it two ways:
 
 - **Correlation** (`ledger.command`): the transport's confirming message
   promotes the overlay by id; a thrown effect rolls it back.
-- **Unit verdict** (`Unit(…, verdict: …)`): a prediction-family fact holds
-  the diff; the resolver family settles it by STATE COMPARISON — re-applying
-  the prediction as a no-op confirms, silence past the deadline reverts,
-  a partial apply lands `amended`. No wire ids needed; requires value
-  equality on the state.
-- **Keyed verdict** (`Store(…, verdict: …)`): the same, per key — and the
-  wire request itself can BE the prediction (one dispatch sends and folds).
-  Predictions pipeline; each settles independently at its own keys.
+- **A write dock** — rows, not machinery: a side store holds the pending
+  prediction as honest state (base has no arm for it), a merge edge applies
+  it at read, a guard settles it against echoes by STATE COMPARISON, and a
+  deadline EFFECT dispatches a timeout fact the guard judges like any other.
+  Everything replays, so confirm/revert/amend orders are statable as laws.
 
 Every entry carries `Flags` (`pending`, `confirmed`, `reverted`, `amended`,
 `stale`, `failed` + `tampered`), so the UI can tell a hope from a truth.
