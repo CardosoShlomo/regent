@@ -85,7 +85,10 @@ prevents the rest. These are the rules the engine can't enforce for you:
 - **One sealed family per entity concern.** The family (`ProductMsg`,
   `CartMsg`) is exactly what one store reduces — `sealed`, so the reduce is
   exhaustively matched and a new variant is a compile error until every
-  store answers it. (A SHADOW store may reduce the root `Msg` and delegate.)
+  store answers it. NO row reduces the root `Msg` — a row whose facts cross
+  families (a shadow, a dock, an in-flight unit) declares a sealed GROUP its
+  facts `implements` (a family base may join a group wholesale), so even a
+  shadow's delegation arm is typed: `final UserMsg m => const Users().reduce(rows, m)`.
 - **Guards are pure.** A guard reads the world only through `read` — never
   dispatches, never touches the world. Placement is semantics: declare
   guards above the rows they protect.
