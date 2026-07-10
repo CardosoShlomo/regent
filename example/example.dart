@@ -3,7 +3,10 @@
 //   1. facts as sealed families (a msg IS a source: its TYPE is its rank)
 //   2. stores & units: pure folds, nothing else lives in a memory
 //   3. the regents ENUM: row order is traversal order; gates protect below
-//   4. guards: veto (drop), rewrite/fan-out (Set<Msg> — policies as messages)
+//   4. guards are LAUNCHERS: `.forward` (drop/rewrite/fan-out below) and
+//      `.mint` (derive a NEW round from index 0 — unjournaled, re-derived
+//      on replay); the SHADOW LAW: every row folds a sealed GROUP of
+//      exactly its facts — no wildcard arms anywhere
 //   5. `read(const X())` — judges read the ledger's own state by identity
 //   6. an IN-FLIGHT row: request status as honest state, deduped by a gate
 //   7. COVERAGE: recorded permission to treat absence as knowledge
@@ -39,70 +42,80 @@ class Product with Identifiable<String> {
 }
 
 /// A cursor page of the catalog — the AUTHORITY over its own window.
-class CatalogPage extends ShopMsg {
+class CatalogPage extends ShopMsg implements CatalogMsg, InFlightMsg {
   const CatalogPage(this.products, {required this.hasMore});
   final List<Product> products;
   final bool hasMore;
 }
 
 /// The disk cache speaking at boot — may only fill ABSENCE, never overwrite.
-class CachedCatalog extends ShopMsg {
+class CachedCatalog extends ShopMsg implements LocalCatalogMsg {
   const CachedCatalog(this.products);
   final List<Product> products;
 }
 
 /// The request — kept OUT of any reduce family; the in-flight row tracks it.
-class LoadCatalog extends ShopMsg {
+class LoadCatalog extends ShopMsg implements InFlightMsg {
   const LoadCatalog();
 }
 
-/// The gate's RULING (minted below, never dispatched by hand): the window a
-/// page was exhaustive about, and the known ids it thereby declared gone.
-class CatalogRuled extends ShopMsg {
+/// The gate's RULING — MINTED (never dispatched by hand, never journaled;
+/// replay re-derives it from the page): the window a page was exhaustive
+/// about, and the known ids it thereby declared gone.
+class CatalogRuled extends ShopMsg
+    implements CatalogMsg, LocalCatalogMsg {
   const CatalogRuled(this.lo, this.hi, this.gone);
   final int? lo, hi;
   final Set<String> gone;
 }
 
+// ── The SHADOW LAW: each row folds a sealed GROUP of exactly its facts —
+// a message joins its family by `extends` and its readers by `implements`,
+// so every reduce is exhaustive and a new member is a compile error. ──
+sealed class CatalogMsg extends Msg {}
+sealed class LocalCatalogMsg extends Msg {}
+sealed class InFlightMsg extends Msg {}
+sealed class ShopWriteMsg extends Msg {}
+
 /// The optimistic PREDICTION (a rename), its wire echo, and the deadline
 /// fact an effect's timer would dispatch — the ledger never holds a Timer.
-class RenameShop extends ShopMsg {
+class RenameShop extends ShopMsg implements ShopWriteMsg {
   const RenameShop(this.name);
   final String name;
 }
 
-class ShopSaved extends ShopMsg {
+class ShopSaved extends ShopMsg implements ShopWriteMsg {
   const ShopSaved(this.name);
   final String name;
 }
 
-class RenameTimedOut extends ShopMsg {
+class RenameTimedOut extends ShopMsg implements ShopWriteMsg {
   const RenameTimedOut();
 }
 
 // ── 2. The folds. A memory holds NOTHING but these. ──
 
-/// The catalog table: wire pages upsert; rulings censor; that's all.
-final class Catalog extends Store<String, Product, ShopMsg> {
+/// The catalog table: wire pages upsert; rulings censor; that's all —
+/// and the sealed group says EXACTLY that: no wildcard, nothing unheard.
+final class Catalog extends Store<String, Product, CatalogMsg> {
   const Catalog();
   @override
   IdentifiableMap<String, Product> reduce(
-          IdentifiableMap<String, Product> rows, ShopMsg msg) =>
+          IdentifiableMap<String, Product> rows, CatalogMsg msg) =>
       switch (msg) {
         CatalogPage(:final products) => rows.upsertAll(products),
         CatalogRuled(:final gone) =>
           rows.withoutWhere((id, _) => gone.contains(id)),
-        _ => rows,
       };
 }
 
 /// 8. The SHADOW: cache fills absence; authority facts only censor. It may
 /// hold LESS truth than the wire, never OTHER.
-final class LocalCatalog extends Store<String, Product, ShopMsg> {
+final class LocalCatalog extends Store<String, Product, LocalCatalogMsg> {
   const LocalCatalog();
   @override
   IdentifiableMap<String, Product> reduce(
-          IdentifiableMap<String, Product> rows, ShopMsg msg) =>
+          IdentifiableMap<String, Product> rows, LocalCatalogMsg msg) =>
       switch (msg) {
         CachedCatalog(:final products) => {
             for (final p in products)
@@ -114,7 +127,6 @@ final class LocalCatalog extends Store<String, Product, ShopMsg> {
               gone.contains(id) ||
               ((lo == null || p.addedAt >= lo) &&
                   (hi == null || p.addedAt <= hi))),
-        _ => rows,
       };
 }
 
@@ -125,45 +137,40 @@ final class LocalSupports extends Projection<Product, String, Product> {
 }
 
 /// 7. COVERAGE as a row: which cursor windows the authority has spoken for.
-final class CatalogCoverage extends Unit<CoveredRanges<num>, ShopMsg> {
+/// A single-fact row may type on the CONCRETE class — trivially exhaustive.
+final class CatalogCoverage extends Unit<CoveredRanges<num>, CatalogRuled> {
   const CatalogCoverage() : super(const CoveredRanges.none());
   @override
-  CoveredRanges<num> reduce(CoveredRanges<num> covered, ShopMsg msg) =>
-      switch (msg) {
-        CatalogRuled(:final lo, :final hi) => covered.mark(lo, hi),
-        _ => covered,
-      };
+  CoveredRanges<num> reduce(CoveredRanges<num> covered, CatalogRuled msg) =>
+      covered.mark(msg.lo, msg.hi);
 }
 
 /// 6. IN-FLIGHT as a row: the request folds it in, the page folds it out.
-final class CatalogInFlight extends Unit<bool, ShopMsg> {
+final class CatalogInFlight extends Unit<bool, InFlightMsg> {
   const CatalogInFlight() : super(false);
   @override
-  bool reduce(bool state, ShopMsg msg) => switch (msg) {
+  bool reduce(bool state, InFlightMsg msg) => switch (msg) {
         LoadCatalog() => true,
         CatalogPage() => false,
-        _ => state,
       };
 }
 
-/// The shop name — a unit; its optimism lives in the dock BESIDE it.
-final class Shop extends Unit<String, ShopMsg> {
+/// The shop name — a unit; its optimism lives in the dock BESIDE it. Its
+/// group is the ONE fact base folds: the prediction isn't a member at all —
+/// base never folds a promise, by TYPE.
+final class Shop extends Unit<String, ShopSaved> {
   const Shop() : super('corner shop');
   @override
-  String reduce(String name, ShopMsg msg) => switch (msg) {
-        ShopSaved(:final name) => name,
-        _ => name, // the PREDICTION has no arm: base never folds a promise
-      };
+  String reduce(String name, ShopSaved msg) => msg.name;
 }
 
 /// 9. The WRITE DOCK's pending row: the promise as honest state.
-final class ShopWrite extends Unit<String?, ShopMsg> {
+final class ShopWrite extends Unit<String?, ShopWriteMsg> {
   const ShopWrite() : super(null);
   @override
-  String? reduce(String? pending, ShopMsg msg) => switch (msg) {
+  String? reduce(String? pending, ShopWriteMsg msg) => switch (msg) {
         RenameShop(:final name) => name,
         ShopSaved() || RenameTimedOut() => null,
-        _ => pending,
       };
 }
 
@@ -202,8 +209,10 @@ final class StripCachedCatalog extends Guard<CachedCatalog> {
 }
 
 /// The PAGE gate: resolves what window this page was exhaustive about and
-/// fans out ONE policy fact — the known ids inside it that went unlisted
-/// are GONE (covered absence is knowledge, not silence).
+/// MINTS one policy fact — the known ids inside it that went unlisted are
+/// GONE (covered absence is knowledge, not silence). The mint is the
+/// upward door: it runs as its own round from index 0, unjournaled, and
+/// replay re-derives it — a fact the fold already implies, stated as one.
 final class RuleCatalogPage extends Guard<CatalogPage> {
   const RuleCatalogPage();
   @override
@@ -219,7 +228,7 @@ final class RuleCatalogPage extends Guard<CatalogPage> {
     };
     return {
       .forward(msg),
-      .forward(CatalogRuled(lo, hi, {
+      .mint(CatalogRuled(lo, hi, {
         for (final p in known.values)
           if (!listed.contains(p.id) &&
               (lo == null || p.addedAt >= lo) &&
@@ -250,13 +259,13 @@ enum Rows with RegentNode<Rows> {
 
 void main() {
   final ledger = Ledger.of(Rows.values);
-  final catalog =
-      ledger.memoryOf(Rows.catalog) as StoreMemory<String, Product, ShopMsg>;
+  final catalog = ledger.memoryOf(Rows.catalog)
+      as StoreMemory<String, Product, CatalogMsg>;
   final local = ledger.memoryOf(Rows.localCatalog)
-      as StoreMemory<String, Product, ShopMsg>;
-  final shop = ledger.memoryOf(Rows.shop) as UnitMemory<String, ShopMsg>;
+      as StoreMemory<String, Product, LocalCatalogMsg>;
+  final shop = ledger.memoryOf(Rows.shop) as UnitMemory<String, ShopSaved>;
   final write =
-      ledger.memoryOf(Rows.shopWrite) as UnitMemory<String?, ShopMsg>;
+      ledger.memoryOf(Rows.shopWrite) as UnitMemory<String?, ShopWriteMsg>;
   // 8/10. Merge edges — read-time, never copied state.
   catalog.mergeStore(local, const LocalSupports());
   shop.merge(write, const WriteSupportsShop());
