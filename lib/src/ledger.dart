@@ -137,6 +137,24 @@ class Ledger implements LedgerRows {
   /// keyed, same as [read].
   Object? memory(AnyStore<Object?> spec) => _specMemories[spec];
 
+  /// The TYPED live store for [spec] — the spec instance carries its own
+  /// type arguments, so the memory comes back fully typed with no name in
+  /// between: `ledger.storeOf(const Products())['p1']`. Identity-keyed:
+  /// spell the row's constructor expression with `const`. Throws when no
+  /// row holds the instance.
+  StoreMemory<K, E, M> storeOf<K, E extends Identifiable<K>, M extends Msg>(
+          Store<K, E, M> spec) =>
+      (_specMemories[spec] ?? (throw _noRow(spec))) as StoreMemory<K, E, M>;
+
+  /// The TYPED live unit for [spec] — see [storeOf].
+  UnitMemory<S, M> unitOf<S, M extends Msg>(Unit<S, M> spec) =>
+      (_specMemories[spec] ?? (throw _noRow(spec))) as UnitMemory<S, M>;
+
+  StateError _noRow(Object spec) => StateError(
+      'no row holds this ${spec.runtimeType} instance — the lookup is by '
+      'IDENTITY: match the row\'s constructor args exactly, and spell '
+      '`const` (a non-const expression is a fresh instance).');
+
   /// Every enrolled regent's state, keyed by spec instance — plain
   /// collections so `equals`/`isNot` compare structurally (the graph form
   /// of a replay snapshot).
