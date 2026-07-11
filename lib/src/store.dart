@@ -257,7 +257,7 @@ abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
     implements
         AnyStore<IdentifiableMap<K, E>>,
         At<StoreMemory<K, E, M>> {
-  const Store({this.initial = const {}});
+  const Store([this.initial = const {}]);
 
   /// The collection before any fact has arrived — empty unless seeded.
   final IdentifiableMap<K, E> initial;
