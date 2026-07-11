@@ -72,10 +72,6 @@ class Ledger implements LedgerRows {
   // ── Graph splicing ──────────────────────────────────────────────────────
   final Set<Regency> _graphsSeen = Set.identity();
   final List<AnyProjection> _pendingMerges = [];
-  // ONE resource per entity: an entity has one authoritative home, and the
-  // law is what keeps generic facts (`Added<T>`…) collision-free — a second
-  // view of an entity is a derived read, never a second brick.
-  final Map<Type, String> _crudEntities = {};
 
   @override
   void graph(covariant Regency spec) {
@@ -84,16 +80,6 @@ class Ledger implements LedgerRows {
           'the identical ${spec.runtimeType} graph appears twice — const '
           'canonicalization makes them one graft; a segment may be spliced '
           'only once.');
-    }
-    if (spec case final EntityHome home) {
-      final prior = _crudEntities[home.entity];
-      if (prior != null) {
-        throw StateError(
-            '${spec.runtimeType} and $prior are both resources of '
-            '`${home.entity}` — an entity has ONE authoritative home. '
-            'Derive the second view at read, or split the entity types.');
-      }
-      _crudEntities[home.entity] = '${spec.runtimeType}';
     }
     for (final row in spec.rows) {
       row.mount(this);

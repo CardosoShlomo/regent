@@ -1,11 +1,6 @@
 ## 0.13.0
 
-- Generic facts (`Listed<T>`, `Added<T>`, `Removed<K>`) + `SimpleCrud<K, T>`: a purely LOCAL resource is one line with zero message declarations — `dispatch(Added(todo))`.
-- ONE resource per entity, enforced at boot: a second brick of the same entity throws (an entity has one authoritative home; a second view is a derived read) — which keeps the generic facts collision-free by construction.
-- BREAKING: `RemoveMsg<K>` deleted — id-targeted slots bound by `Identifiable<K>` (the slot supplies the meaning; the fact's own id is the target); `Crud.cache`/`dock` nullable (absent capabilities contribute nothing).
-- ARMS: a brick's folds are assembled from composable arm pieces (`listedArm`/`filledArm`/`upsertArm`/`settledArm`/`removedArm`/`clearedArm` over one `ResourceStore`) — presets carry exactly the arms their slots use, and future built-ins assemble from the same vocabulary.
-- `RemovableListCrud<K, T, L, C, R>`: list + cache + keyed removal, no write dock.
-- Batteries live under `src/batteries/` (roles, crud, covered ranges, event streams) — the core queue knows them only through the `EntityHome` face.
+- BREAKING: the 0.12 crud tier removed — role mixins, slot bricks, and presets were DIALECTS, and dialects are app code: a named `Regency` subclass is a pure GRAFT (const rows spliced in place, reads stay flat — `read(todos)` never knows the grouping exists), so resource shapes live beside the app's own rows (the example's point 13 shows the wild's commonest crud written longhand). The package ships only what can never wrong a consumer: the core queue, pure value algebras (`CoveredRanges`), and zero-policy stream sugar.
 - `Store.initial` is optional positional (`: super(const {...})` to seed).
 
 ## 0.12.0

@@ -7,7 +7,8 @@
 //      `.mint` (derive a NEW round from index 0 — unjournaled, re-derived
 //      on replay); the SHADOW LAW: every row folds a sealed GROUP of
 //      exactly its facts — no wildcard arms anywhere
-//   5. `read(const X())` — judges read the ledger's own state by identity
+//   5. `read(catalog)` — judges read the ledger's own state by identity;
+//      the rows are NAMED by consumer-owned const globals (the audit list)
 //   6. an IN-FLIGHT row: request status as honest state, deduped by a gate
 //   7. COVERAGE: recorded permission to treat absence as knowledge
 //   8. a shadow store + mergeStore: disk cache answers until censored
@@ -16,6 +17,9 @@
 //  10. unit-from-unit merge: the pending promise answers reads instantly
 //  11. events: effects observe (cause, consequence) atomically
 //  12. replay: order-(in)dependence as an executable LAW
+//  13. a NAMED REGENCY: the wild's commonest crud (load/add/remove list)
+//      written longhand — sealed family, exhaustive fold, cap gate, one
+//      spliceable row; dialects are app code, not framework surface
 //
 // ignore_for_file: avoid_print
 import 'package:regent/regent.dart';
@@ -131,7 +135,7 @@ final class LocalCatalog extends Store<String, Product, LocalCatalogMsg> {
 }
 
 final class LocalSupports extends Projection<Product, String, Product> {
-  const LocalSupports() : super(const Catalog(), const LocalCatalog());
+  const LocalSupports() : super(catalog, localCatalog);
   @override
   Product resolve(Product? row, Product local) => row ?? local;
 }
@@ -176,7 +180,7 @@ final class ShopWrite extends Unit<String?, ShopWriteMsg> {
 
 /// 10. The dock's merge edge: reads show the promise until it settles.
 final class WriteSupportsShop extends UnitProjection<String?, String> {
-  const WriteSupportsShop() : super(const Shop(), const ShopWrite());
+  const WriteSupportsShop() : super(shop, shopWrite);
   @override
   String resolve(String value, String? pending) => pending ?? value;
 }
@@ -189,7 +193,7 @@ final class DedupeLoad extends Guard<LoadCatalog> {
   const DedupeLoad();
   @override
   Set<Judgment> judge(LoadCatalog msg, ReadStore read) =>
-      read(const CatalogInFlight()) ? const {} : {.forward(msg)};
+      read(catalogInFlight) ? const {} : {.forward(msg)};
 }
 
 /// The CACHE gate: a cached product inside a COVERED window is a corpse —
@@ -200,7 +204,7 @@ final class StripCachedCatalog extends Guard<CachedCatalog> {
   const StripCachedCatalog();
   @override
   Set<Judgment> judge(CachedCatalog msg, ReadStore read) {
-    final covered = read(const CatalogCoverage());
+    final covered = read(catalogCoverage);
     return {
       .forward(CachedCatalog(
           [for (final p in msg.products) if (!covered.contains(p.addedAt)) p])),
@@ -223,8 +227,8 @@ final class RuleCatalogPage extends Guard<CatalogPage> {
     final hi = cursors.last;
     final listed = {for (final p in msg.products) p.id};
     final known = {
-      ...read(const LocalCatalog()),
-      ...read(const Catalog()),
+      ...read(localCatalog),
+      ...read(catalog),
     };
     return {
       .forward(msg),
@@ -239,19 +243,82 @@ final class RuleCatalogPage extends Guard<CatalogPage> {
   }
 }
 
+// ── 13. The commonest CRUD in the wild — a load/add/remove list — written
+// LONGHAND as a named regency: a sealed family, one exhaustive fold, a cap
+// gate, and a Regency subclass. No battery, no framework surface: this
+// whole shape is ~35 lines, law-tested like any rows, spliced as ONE row
+// of the app graph below. ──
+sealed class WishlistMsg extends Msg {
+  const WishlistMsg();
+}
+
+class WishlistLoaded extends WishlistMsg {
+  const WishlistLoaded(this.items);
+  final List<Product> items;
+}
+
+class WishAdded extends WishlistMsg {
+  const WishAdded(this.item);
+  final Product item;
+}
+
+class WishRemoved extends WishlistMsg {
+  const WishRemoved(this.id);
+  final String id;
+}
+
+final class WishlistRows extends Store<String, Product, WishlistMsg> {
+  const WishlistRows();
+  @override
+  IdentifiableMap<String, Product> reduce(
+          IdentifiableMap<String, Product> rows, WishlistMsg msg) =>
+      switch (msg) {
+        WishlistLoaded(:final items) => items.toMapById(),
+        WishAdded(:final item) => rows.upsert(item),
+        WishRemoved(:final id) => rows.removeById(id),
+      };
+}
+
+/// The list holds twenty wishes at most — a policy the segment carries.
+final class WishlistCap extends Veto<WishAdded> {
+  const WishlistCap();
+  @override
+  bool block(WishAdded msg, ReadStore read) => read(wishlist).length >= 20;
+}
+
+/// A named regency is a pure GRAFT: it groups rows for splicing and
+/// nothing else — reads stay flat (`read(wishlist)` above never knows the
+/// grouping exists).
+final class Wishlist extends Regency {
+  const Wishlist() : super(const {WishlistCap(), wishlist});
+}
+
 // ── 3. The REGENCY: the app as a const value — set order IS the queue.
 // Gates stand above what they protect; the dock and its unit close the
 // set; the projections in `merges` carry their own endpoints. ──
+// The rows get NAMES — consumer-owned const globals: `read(catalog)` in a
+// judge, `super(catalog, localCatalog)` in a projection (keyword-free —
+// const variables are constant expressions), and the regency below reads
+// as the app's one audit list.
+const catalog = Catalog();
+const localCatalog = LocalCatalog();
+const catalogCoverage = CatalogCoverage();
+const catalogInFlight = CatalogInFlight();
+const shop = Shop();
+const shopWrite = ShopWrite();
+const wishlist = WishlistRows();
+
 const app = Regency({
   DedupeLoad(),
-  CatalogInFlight(),
+  catalogInFlight,
   StripCachedCatalog(),
   RuleCatalogPage(),
-  CatalogCoverage(),
-  LocalCatalog(),
-  Catalog(),
-  ShopWrite(),
-  Shop(),
+  catalogCoverage,
+  localCatalog,
+  catalog,
+  shopWrite,
+  shop,
+  Wishlist(), // 13. a named regency — its rows splice here
 }, merges: {
   LocalSupports(),
   WriteSupportsShop(),
@@ -260,13 +327,13 @@ const app = Regency({
 void main() {
   // TWO doors: dispatch (write) and at (stand at a position, typed).
   final ledger = Ledger.root(app);
-  final catalog = ledger.at(const Catalog());
-  final shop = ledger.at(const Shop());
+  final catalogMem = ledger.at(catalog);
+  final shopMem = ledger.at(shop);
 
   // 11. An effect: observes post-fold, atomically (cause, consequence).
   // Taps deliver ASYNC — after the synchronous script below, each seeing a
   // consistent cut; an effect's own dispatches enter like any other fact.
-  catalog.events.listen((e) =>
+  catalogMem.events.listen((e) =>
       print('  event: ${e.msg.runtimeType} → ${e.after.length} products'));
 
   // Boot: the cache fills absence…
@@ -280,16 +347,21 @@ void main() {
   ledger.dispatch(const CatalogPage(
       [Product('p1', 'kettle', 10), Product('p3', 'mug', 30)],
       hasMore: false));
-  print('catalog: ${[for (final p in catalog.values) p.name]}');
-  final covered = ledger.at(const CatalogCoverage()).folded;
+  print('catalog: ${[for (final p in catalogMem.values) p.name]}');
+  final covered = ledger.at(catalogCoverage).folded;
   print('covered 20? ${covered.contains(20)}');
 
   // 9/10. The dock: the promise shows instantly, base never lied, the echo
   // settles — and a silent server would settle via a timeout FACT instead.
   ledger.dispatch(const RenameShop('corner shop & co'));
-  print('shop reads "${shop.state}", base holds "${shop.folded}"');
+  print('shop reads "${shopMem.state}", base holds "${shopMem.folded}"');
   ledger.dispatch(const ShopSaved('corner shop & co'));
-  print('settled: "${shop.state}"');
+  print('settled: "${shopMem.state}"');
+
+  // 13. The wishlist regency, spliced rows like any others.
+  ledger.dispatch(const WishAdded(Product('p3', 'mug', 30)));
+  ledger.dispatch(const WishRemoved('p3'));
+  print('wishlist: ${ledger.at(wishlist).ids}');
 
   // 12. The LAW: cache-vs-authority converges in either order.
   final a = replay(app, [

@@ -1,7 +1,7 @@
 import 'package:identifiable/identifiable.dart';
 
-import '../msg.dart';
-import '../store.dart';
+import 'msg.dart';
+import 'store.dart';
 
 /// Pure sugar over a UNIT's post-fold event stream — the recurring effect
 /// idioms as verbs. Extensions on the STREAM (not the memory), so they

@@ -60,13 +60,6 @@ final class Feed {
 /// `Regency.merges` set holds.
 abstract interface class AnyProjection {}
 
-/// A segment claiming to be an entity's AUTHORITATIVE HOME (the Crud
-/// bricks wear it): the ledger admits ONE home per entity — a second view
-/// of an entity is a derived read, never a second store.
-abstract interface class EntityHome {
-  Type get entity;
-}
-
 /// A guard's view of the world: this ledger's own state, looked up by
 /// regent IDENTITY — `read(const BrowseDeck())`, `read(const AuthMachine())`.
 /// Const canonicalization makes the constructor expression the regent's
