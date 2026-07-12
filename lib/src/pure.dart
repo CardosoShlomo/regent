@@ -9,7 +9,7 @@
 /// Guard.judge, Veto.block) and available as `@pure` on any other function you
 /// want held to the same bar. Enforced by regent's `custom_lint` rule; without
 /// the lint it still documents the contract.
-class Pure {
+final class Pure {
   const Pure();
 }
 

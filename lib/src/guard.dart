@@ -93,7 +93,7 @@ final class GuardEvent<M extends Msg> {
 /// the judged input and the verdict, observable — a judge holds no state,
 /// so its memory is pure story. Plural members are streams, all derived
 /// from the atomic [events]:
-class GuardMemory<M extends Msg> {
+final class GuardMemory<M extends Msg> {
   final StreamController<GuardEvent<M>> _events =
       StreamController<GuardEvent<M>>.broadcast();
 

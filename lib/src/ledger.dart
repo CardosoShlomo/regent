@@ -17,7 +17,7 @@ import 'store.dart';
 ///
 /// A vetoed message still appears at `.entry` (replay / ring buffer /
 /// debug) but never reaches state or `.exit` — "control without dirtying".
-class Ledger implements LedgerRows {
+final class Ledger implements LedgerRows {
   Ledger() {
     // Every record message enters the FIRST segment of the queue; guards
     // forward (or drop, or rewrite) between segments; the last segment

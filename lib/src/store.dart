@@ -202,7 +202,7 @@ final class UnitEvent<S, M extends Msg> {
 /// local DB, or a local optimistic `dispatch(..., optimistic: true)`.
 /// Decoupled from canon and from Flutter; a [StoreMemory] subscribes to it,
 /// and a riverpod notifier can subscribe via [on] too — neither owns the other.
-class Bus {
+final class Bus {
   // The SPINE: synchronous delivery that runs the traversal (folds). Internal —
   // memories subscribe here so state is settled when dispatch returns.
   final StreamController<Msg> _spine =
@@ -297,7 +297,7 @@ abstract base class Unit<S, M extends Msg> extends Regent
 }
 
 /// The live memory for a [Unit]: the value driven off a [Bus].
-class UnitMemory<S, M extends Msg> {
+final class UnitMemory<S, M extends Msg> {
   UnitMemory(this._spec, Bus bus) : _base = _spec.initial {
     _sub = bus.spine<M>().listen(_apply);
   }
@@ -386,7 +386,7 @@ class _MergeEdge<K, E> {
 /// plus read-time merge edges and the change/event feeds. It holds NO other
 /// state — optimism, in-flight status, freshness, and settlement all live in
 /// consumer ROWS (docks, in-flight units, coverage), where they replay.
-class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
+final class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   StoreMemory(this._reg, Bus bus) {
     _sub = bus.spine<M>().listen(_apply);
   }

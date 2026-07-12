@@ -1,3 +1,7 @@
+## 0.14.0
+
+- BREAKING: the machinery is closed — `Ledger`, `Bus`, the memories (`StoreMemory`/`UnitMemory`/`GuardMemory`) and `Pure` are `final`. The row tier stays `base`: extend, never implement.
+
 ## 0.13.0
 
 - BREAKING: the 0.12 crud tier removed — role mixins, slot bricks, and presets were DIALECTS, and dialects are app code: a named `Regency` subclass is a pure GRAFT (const rows spliced in place, reads stay flat — `read(todos)` never knows the grouping exists), so resource shapes live beside the app's own rows (the example's point 13 shows the wild's commonest crud written longhand). The package ships only what can never wrong a consumer: the core queue, pure value algebras (`CoveredRanges`), and zero-policy stream sugar.
